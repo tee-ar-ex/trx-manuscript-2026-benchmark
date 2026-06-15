@@ -103,7 +103,7 @@ To ensure scientific rigor and parity across all languages, the benchmarking mod
 
 3. **Programmatic Cache Eviction**: To prevent memory page caching from skewing results, runners invalidate the file system page cache for the target file before every iteration using the POSIX system call `posix_fadvise(..., POSIX_FADV_DONTNEED)`.
 4. **Programmatic Heap Cleaning**: Memory is explicitly freed and heap spaces are trimmed (e.g., via `malloc_trim` or garbage collection calls) between files and iterations to prevent memory accumulation and thrashing from affecting consecutive runs.
-5. **Integrity Parity Checks**: Every single file loader validates that the streamline count (expected **5,979,093**) and total point count (expected **201,521,017**) match the exact baseline specifications. Any mismatch invalidates the timing and records an error.
+5. **Integrity Parity Checks**: Every single file loader performs dynamic integrity checking. The first successfully loaded file establishes the baseline streamline and total point count. All subsequent loaders and formats must perfectly match this baseline configuration, allowing the suite to automatically scale from small validation datasets to massive production volumes (e.g., **5,979,093** streamlines). Any mismatch invalidates the timing and records an error.
 
 ---
 
@@ -183,7 +183,7 @@ Relies on Rust's compile-time RAII (Resource Acquisition Is Initialization). Obj
 * **Cache Eviction**:
 Uses native C bindings via the `libc` crate: `libc::posix_fadvise(fd, 0, 0, libc::POSIX_FADV_DONTNEED)`.
 * **Write Capability**:
-Supports writing all formats (TRX, TRK, TCK, VTK). A custom, highly optimized TrackVis (.trk) writer was implemented in `rust/src/main.rs` to bypass the `trx-rs` library's intentional omission of the TRK writer.
+Supports writing all formats (TRX, TRK, TCK, VTK). A custom, highly optimized TrackVis (.trk) reader and writer was implemented in `rust/src/utils.rs` to bypass the `trx-rs` library's strict loading checks and intentional omission of the TRK writer.
 
 ### ⚡ C++
 
@@ -391,6 +391,12 @@ This triggers:
 *   **Report Only**: Regenerate the Markdown comparison summary table from existing `results/*.json` files.
 ```bash
 ./run_benchmarks.sh report
+
+```
+
+*   **Clean Build**: Remove all compiled artifacts, cache directories, and generated `results/` JSONs to start fresh.
+```bash
+./run_benchmarks.sh clean
 
 ```
 

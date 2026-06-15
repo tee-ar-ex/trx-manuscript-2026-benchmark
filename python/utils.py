@@ -114,7 +114,7 @@ def load_vtk_as_tractogram(filename):
 def load_data(filename):
     _, ext = os.path.splitext(filename)
     if ext in [".trk", ".tck"]:
-        obj = nib.streamlines.load(filename)
+        obj = nib.streamlines.load(filename, lazy_load=False)
     elif ext in [".vtk", ".vtp", ".fib"]:
         obj = io.load_polydata(filename)
     elif ext == ".trx":
@@ -122,4 +122,5 @@ def load_data(filename):
         obj.to_memory()
     else:
         raise ValueError(f"Unsupported extension {ext}")
+    obj.streamlines._data = obj.streamlines._data.astype(np.float32)
     return obj

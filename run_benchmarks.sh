@@ -28,5 +28,11 @@ fi
 
 echo "[INFO] TRX_BENCHMARK_DATA_DIR is set to: ${TRX_BENCHMARK_DATA_DIR}"
 
+if [ "${1:-}" == "clean" ]; then
+    echo "Cleaning build directories..."
+    rm -rf cpp/build rust/target results/ js/node_modules
+    exit 0
+fi
+
 # Run orchestrator
 python3 orchestrate.py "$@"

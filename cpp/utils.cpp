@@ -232,19 +232,39 @@ bool load_vtk(const std::string &filename, Tractogram &tr) {
 
     std::string line;
     size_t num_points = 0;
+    bool is_double = false;
     while (std::getline(f, line)) {
         if (line.rfind("POINTS ", 0) == 0) {
-            num_points = std::stoull(line.substr(7, line.find(" ", 7) - 7));
+            size_t space1 = line.find(" ", 7);
+            num_points = std::stoull(line.substr(7, space1 - 7));
+            if (line.find("double", space1) != std::string::npos) {
+                is_double = true;
+            }
             break;
         }
     }
     if (num_points == 0) return false;
 
-    // Read points in big endian
     tr.pts.resize(num_points * 3);
-    f.read(reinterpret_cast<char*>(tr.pts.data()), num_points * 3 * sizeof(float));
-    for (size_t i = 0; i < num_points * 3; ++i) {
-        tr.pts[i] = swap_float(tr.pts[i]);
+    if (is_double) {
+        std::vector<double> dpts(num_points * 3);
+        f.read(reinterpret_cast<char*>(dpts.data()), num_points * 3 * sizeof(double));
+        for (size_t i = 0; i < num_points * 3; ++i) {
+            uint64_t val;
+            std::memcpy(&val, &dpts[i], 8);
+            val = ((val & 0xFF00000000000000ULL) >> 56) | ((val & 0x00FF000000000000ULL) >> 40) |
+                  ((val & 0x0000FF0000000000ULL) >> 24) | ((val & 0x000000FF00000000ULL) >> 8) |
+                  ((val & 0x00000000FF000000ULL) << 8)  | ((val & 0x0000000000FF0000ULL) << 24) |
+                  ((val & 0x000000000000FF00ULL) << 40) | ((val & 0x00000000000000FFULL) << 56);
+            double swapped;
+            std::memcpy(&swapped, &val, 8);
+            tr.pts[i] = static_cast<float>(swapped);
+        }
+    } else {
+        f.read(reinterpret_cast<char*>(tr.pts.data()), num_points * 3 * sizeof(float));
+        for (size_t i = 0; i < num_points * 3; ++i) {
+            tr.pts[i] = swap_float(tr.pts[i]);
+        }
     }
 
     size_t num_streamlines = 0;
@@ -256,13 +276,43 @@ bool load_vtk(const std::string &filename, Tractogram &tr) {
     }
     if (num_streamlines == 0) return false;
 
+    auto pos_before_offsets = f.tellg();
+    std::getline(f, line);
+    if (!line.empty() && line.back() == '\r') line.pop_back();
+    bool has_offsets = (line.rfind("OFFSETS", 0) == 0);
+    bool is_int64 = (line.find("int64") != std::string::npos);
+
+    if (has_offsets) {
+        tr.offsets.resize(num_streamlines);
+        for (size_t i = 0; i < num_streamlines; ++i) {
+            if (is_int64) {
+                uint64_t val;
+                f.read(reinterpret_cast<char*>(&val), 8);
+                val = ((val & 0xFF00000000000000ULL) >> 56) | ((val & 0x00FF000000000000ULL) >> 40) |
+                      ((val & 0x0000FF0000000000ULL) >> 24) | ((val & 0x000000FF00000000ULL) >> 8) |
+                      ((val & 0x00000000FF000000ULL) << 8)  | ((val & 0x0000000000FF0000ULL) << 24) |
+                      ((val & 0x000000000000FF00ULL) << 40) | ((val & 0x00000000000000FFULL) << 56);
+                tr.offsets[i] = val;
+            } else {
+                uint32_t val;
+                f.read(reinterpret_cast<char*>(&val), 4);
+                val = swap_int32(val);
+                tr.offsets[i] = val;
+            }
+        }
+        return true;
+    }
+    f.seekg(pos_before_offsets);
+
     tr.offsets.clear();
     tr.offsets.push_back(0);
 
     for (size_t i = 0; i < num_streamlines; ++i) {
         int32_t n_pts;
         f.read(reinterpret_cast<char*>(&n_pts), sizeof(int32_t));
+        if (!f) break;
         n_pts = swap_int32(n_pts);
+        if (n_pts == 0) continue;
         tr.offsets.push_back(tr.offsets.back() + n_pts);
         
         // Skip cell indices

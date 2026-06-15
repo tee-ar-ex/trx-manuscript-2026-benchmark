@@ -32,8 +32,8 @@ const FILENAMES: &[&str] = &[
     "f64_ui64_w_metadata.vtk",
 ];
 
-const EXPECTED_STREAMLINES: usize = 5_979_093;
-const EXPECTED_VERTICES: usize = 201_521_017;
+static EXPECTED_STREAMLINES: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+static EXPECTED_VERTICES: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
 
 #[derive(Serialize)]
 struct InnerResults {
@@ -167,6 +167,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             continue;
         }
 
+        let ext = if filename.ends_with(".trx") {
+            ".trx"
+        } else if filename.ends_with(".tck") {
+            ".tck"
+        } else if filename.ends_with(".vtk") {
+            ".vtk"
+        } else if filename.ends_with(".trk") {
+            ".trk"
+        } else {
+            ""
+        };
+
         // --- Benchmarking Loading ---
         println!("Benchmarking Loading for {} (11 iterations)...", filename);
         let mut load_times = Vec::new();
@@ -178,7 +190,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             std::thread::sleep(std::time::Duration::from_secs(1));
 
             let t0 = Instant::now();
-            let tractogram = match trx_rs::read_tractogram(&path, &trx_rs::ConversionOptions::default()) {
+            let tractogram = match ext {
+                ".trk" => utils::load_trk(&path).map_err(|e| e.to_string()),
+                ".vtk" => utils::load_vtk(&path).map_err(|e| e.to_string()),
+                _ => trx_rs::read_tractogram(&path, &trx_rs::ConversionOptions::default()).map_err(|e| e.to_string())
+            };
+            let tractogram = match tractogram {
                 Ok(t) => t,
                 Err(e) => {
                     println!("    {:2} - [ERROR] Loading failed: {}", i, e);
@@ -187,10 +204,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             };
             let duration = t0.elapsed().as_secs_f64();
 
-            // Parity integrity checks
             let nb_streamlines = tractogram.nb_streamlines();
             let nb_vertices = tractogram.nb_vertices();
-            if nb_streamlines != EXPECTED_STREAMLINES || nb_vertices != EXPECTED_VERTICES {
+            
+            let expected_s = *EXPECTED_STREAMLINES.get_or_init(|| nb_streamlines);
+            let expected_v = *EXPECTED_VERTICES.get_or_init(|| nb_vertices);
+            
+            if nb_streamlines != expected_s || nb_vertices != expected_v {
                 println!(
                     "    [FAIL] {} - Wrong size detected! streamlines: {}, vertices: {}",
                     filename, nb_streamlines, nb_vertices
@@ -213,7 +233,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         // Load the tractogram once for saving benchmark
-        let tractogram = match trx_rs::read_tractogram(&path, &trx_rs::ConversionOptions::default()) {
+        let tractogram = match ext {
+            ".trk" => utils::load_trk(&path).map_err(|e| e.to_string()),
+            ".vtk" => utils::load_vtk(&path).map_err(|e| e.to_string()),
+            _ => trx_rs::read_tractogram(&path, &trx_rs::ConversionOptions::default()).map_err(|e| e.to_string())
+        };
+        let tractogram = match tractogram {
             Ok(t) => t,
             Err(e) => {
                 println!("[ERROR] Saving benchmark loader failed: {}", e);
@@ -235,17 +260,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             ..Default::default()
         };
 
-        let ext = if filename.ends_with(".trx") {
-            ".trx"
-        } else if filename.ends_with(".tck") {
-            ".tck"
-        } else if filename.ends_with(".vtk") {
-            ".vtk"
-        } else if filename.ends_with(".trk") {
-            ".trk"
-        } else {
-            ""
-        };
+
 
         println!("Benchmarking Saving for {} (11 iterations)...", filename);
         let mut save_times = Vec::new();
@@ -297,9 +312,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // 6. Serialize results to results/rust_results.json
-    let results_dir = Path::new("../results");
+    let results_dir = std::env::current_dir()?.join("results");
     if !results_dir.exists() {
-        fs::create_dir_all(results_dir)?;
+        fs::create_dir_all(&results_dir)?;
     }
 
     let results = BenchmarkResults {

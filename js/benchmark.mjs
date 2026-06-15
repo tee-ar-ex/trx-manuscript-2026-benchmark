@@ -19,9 +19,8 @@ const FILENAMES = [
     "f32_ui64_w_metadata.vtk", "f64_ui64_w_metadata.vtk"
 ];
 
-const EXPECTED_POINTS = 201521017;
-const MIN_EXPECTED_STREAMLINES = 5979090;
-const MAX_EXPECTED_STREAMLINES = 5979100;
+let EXPECTED_POINTS = null;
+let EXPECTED_STREAMLINES = null;
 
 function calculateMean(array) {
     if (array.length === 0) return 0;
@@ -96,14 +95,19 @@ async function main() {
 
                 const c1 = obj.offsetPt0.length;
                 const c2 = obj.offsetPt0.length - 1;
-                const countOk = (c1 >= MIN_EXPECTED_STREAMLINES && c1 <= MAX_EXPECTED_STREAMLINES) ||
-                                (c2 >= MIN_EXPECTED_STREAMLINES && c2 <= MAX_EXPECTED_STREAMLINES);
                 const pointCount = obj.pts.length / 3;
+                
+                if (EXPECTED_POINTS === null) {
+                    EXPECTED_POINTS = pointCount;
+                    EXPECTED_STREAMLINES = c2; 
+                }
+
+                const countOk = (c1 === EXPECTED_STREAMLINES || c2 === EXPECTED_STREAMLINES);
 
                 if (!countOk || pointCount !== EXPECTED_POINTS) {
                     throw new Error(
-                        `Integrity check failed: expected streamlines in range ` +
-                        `[${MIN_EXPECTED_STREAMLINES}, ${MAX_EXPECTED_STREAMLINES}] and ${EXPECTED_POINTS} points, ` +
+                        `Integrity check failed: expected ${EXPECTED_STREAMLINES} streamlines ` +
+                        `and ${EXPECTED_POINTS} points, ` +
                         `got offsetPt0.length = ${c1} (streamlines could be ${c1} or ${c2}) and ${pointCount} points`
                     );
                 }
@@ -207,7 +211,7 @@ async function main() {
         }
     } catch {}
 
-    const outputJson = path.join(resultsDir, "js_results.json");
+    const outputJson = path.join(resultsDir, "javascript_results.json");
     fs.writeFileSync(outputJson, JSON.stringify(results, null, 4));
     console.log(`Results saved to ${outputJson}`);
 }

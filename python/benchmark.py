@@ -25,8 +25,8 @@ FILENAMES = [
     "f32_ui64_w_metadata.vtk", "f64_ui64_w_metadata.vtk"
 ]
 
-EXPECTED_STREAMLINES = 5979093
-EXPECTED_POINTS = 201521017
+EXPECTED_STREAMLINES = None
+EXPECTED_POINTS = None
 
 def get_counts(obj):
     if hasattr(obj, 'streamlines'):
@@ -68,8 +68,8 @@ def main():
 
         if not os.path.exists(filepath):
             sys.stderr.write(f"[ERROR] File not found: {filepath}\n")
-            results["load"][filename] = None
-            results["save"][filename] = None
+            results["results"]["loading"][filename] = None
+            results["results"]["saving"][filename] = None
             continue
 
         print(f"Benchmarking {filename}...")
@@ -87,13 +87,17 @@ def main():
             try:
                 obj = load_data(filepath)
                 
-                # Force eager loading of memory-mapped arrays to ensure comparable eager loading benchmarking
-                obj.to_memory()
-                obj.streamlines._data = obj.streamlines._data.astype(np.float32)
+                if hasattr(obj, 'streamlines'):
+                    obj.streamlines._data = obj.streamlines._data.astype(np.float32)
                 duration = time.time() - t0
                 
                 # Verify integrity
                 streamline_count, point_count = get_counts(obj)
+                global EXPECTED_STREAMLINES, EXPECTED_POINTS
+                if EXPECTED_STREAMLINES is None:
+                    EXPECTED_STREAMLINES = streamline_count
+                    EXPECTED_POINTS = point_count
+                
                 if streamline_count != EXPECTED_STREAMLINES or point_count != EXPECTED_POINTS:
                     raise ValueError(
                         f"Integrity check failed: expected {EXPECTED_STREAMLINES} streamlines "

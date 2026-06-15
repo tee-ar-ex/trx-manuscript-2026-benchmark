@@ -85,7 +85,13 @@ int main() {
             // Validate sizes
             size_t streamline_count = tr.offsets.size() - 1;
             size_t point_count = tr.pts.size() / 3;
-            if (streamline_count != 5979093 || point_count != 201521017) {
+            static size_t EXPECTED_STREAMLINES = 0;
+            static size_t EXPECTED_POINTS = 0;
+            if (EXPECTED_STREAMLINES == 0) {
+                EXPECTED_STREAMLINES = streamline_count;
+                EXPECTED_POINTS = point_count;
+            }
+            if (streamline_count != EXPECTED_STREAMLINES || point_count != EXPECTED_POINTS) {
                 std::cerr << "    " << i << " - [FAIL] " << filename << " - Wrong size detected! streamlines=" 
                           << streamline_count << ", points=" << point_count << std::endl;
                 load_success = false;

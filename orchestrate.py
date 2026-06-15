@@ -105,7 +105,7 @@ def run_js():
 def run_cpp():
     print_banner("Running C++ benchmarks...")
     try:
-        binary_path = os.path.join("cpp", "build", "trx-nature-2026-benchmark-cpp")
+        binary_path = os.path.join("cpp", "build", "trx_benchmark")
         if os.path.isfile(binary_path):
             subprocess.run([f"./{binary_path}"], check=True)
             print("[SUCCESS] C++ benchmarks completed.")
@@ -216,6 +216,15 @@ def main():
         generate_report()
     elif "report" in args:
         generate_report()
+    elif "clean" in args:
+        print_banner("Cleaning benchmark artifacts...")
+        import shutil
+        if os.path.exists("results/tmp_benchmark_saving"):
+            shutil.rmtree("results/tmp_benchmark_saving", ignore_errors=True)
+        for f in os.listdir("results") if os.path.exists("results") else []:
+            if f.endswith(".json"):
+                os.remove(os.path.join("results", f))
+        print("[SUCCESS] Cleanup complete.")
     else:
         if "build" in args:
             build_rust()
