@@ -1,0 +1,12 @@
+{
+  "name": "trx-nature-2026-benchmark-js",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "JavaScript benchmark runner for TRX/TRK/TCK/VTK",
+  "main": "benchmark.mjs",
+  "dependencies": {
+    "fflate": "^0.8.2",
+    "fzstd": "^0.1.1",
+    "gl-matrix": "^3.4.3"
+  }
+}
