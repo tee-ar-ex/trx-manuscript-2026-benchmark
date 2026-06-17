@@ -19,8 +19,14 @@ def run_tests_for_file(input_trx):
                    input_trx, os.path.join(TEST_DIR, "tmp_python.trx")], check=True)
 
     print("Running JavaScript...")
-    subprocess.run(["node", os.path.join(TEST_DIR, "run_js.mjs"),
-                   input_trx, os.path.join(TEST_DIR, "tmp_js.trx"), "--expose-gc --max-old-space-size=16384"], check=True)
+    subprocess.run([
+        "node",
+        "--expose-gc",
+        "--max-old-space-size=16384",
+        os.path.join(TEST_DIR, "run_js.mjs"),
+        input_trx,
+        os.path.join(TEST_DIR, "tmp_js.trx"),
+    ], check=True)
 
     print("Running C++...")
     subprocess.run(["./test_cpp", input_trx, os.path.join(TEST_DIR,
