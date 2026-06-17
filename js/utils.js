@@ -325,10 +325,13 @@ export function saveVTK(filepath, obj) {
 }
 
 export function saveTRX(filepath, obj, originalFilename) {
-    let dtype = "float32";
+    let dtype = obj.positions_dtype || "float32";
     let ptsData = obj.pts;
+    if (ptsData instanceof Float64Array) {
+        dtype = "float64";
+    }
 
-    if (originalFilename.includes("f16")) {
+    if (originalFilename.includes("f16") || dtype === "float16") {
         dtype = "float16";
         ptsData = float32ToFloat16(obj.pts);
     } else if (originalFilename.includes("f64")) {
@@ -361,18 +364,62 @@ export function saveTRX(filepath, obj, originalFilename) {
     zipObj[`positions.3.${dtype}`] = new Uint8Array(ptsData.buffer, ptsData.byteOffset, ptsData.byteLength);
     
     let offsetDtype = "uint32";
-    let offsetData = obj.offsetPt0.subarray(0, numStreamlines);
+    let offsetData = obj.offsetPt0.subarray(0, numStreamlines + 1);
     if (originalFilename.includes("ui64")) {
         offsetDtype = "uint64";
-        const u64Bytes = new Uint8Array(numStreamlines * 8);
+        const u64Bytes = new Uint8Array((numStreamlines + 1) * 8);
         const view = new DataView(u64Bytes.buffer);
-        for (let i = 0; i < numStreamlines; i++) {
+        for (let i = 0; i <= numStreamlines; i++) {
             view.setUint32(i * 8, offsetData[i], true);
             view.setUint32(i * 8 + 4, 0, true);
         }
         zipObj[`offsets.${offsetDtype}`] = u64Bytes;
     } else {
         zipObj[`offsets.${offsetDtype}`] = new Uint8Array(offsetData.buffer, offsetData.byteOffset, offsetData.byteLength);
+    }
+    
+    function getDtypeExt(vals) {
+        if (vals instanceof Float64Array) return 'float64';
+        if (vals instanceof Float32Array) return 'float32';
+        if (vals instanceof Uint32Array) return 'uint32';
+        if (vals instanceof Int32Array) return 'int32';
+        if (vals instanceof Uint16Array) return 'uint16';
+        if (vals instanceof Int16Array) return 'int16';
+        if (vals instanceof Uint8Array) return 'uint8';
+        if (vals instanceof Int8Array) return 'int8';
+        return 'float32';
+    }
+
+    function getCorrectFname(prop) {
+        let name = prop.fname || prop.id;
+        let parts = name.split('.');
+        let ext = getDtypeExt(prop.vals);
+        if (parts.length >= 2) {
+            parts[parts.length - 1] = ext;
+            return parts.join('.');
+        }
+        return name + '.' + ext;
+    }
+
+    if (obj.dpv) {
+        for (let prop of obj.dpv) {
+            zipObj[`dpv/${getCorrectFname(prop)}`] = new Uint8Array(prop.vals.buffer, prop.vals.byteOffset, prop.vals.byteLength);
+        }
+    }
+    if (obj.dps) {
+        for (let prop of obj.dps) {
+            zipObj[`dps/${getCorrectFname(prop)}`] = new Uint8Array(prop.vals.buffer, prop.vals.byteOffset, prop.vals.byteLength);
+        }
+    }
+    if (obj.dpg) {
+        for (let prop of obj.dpg) {
+            zipObj[`dpg/${getCorrectFname(prop)}`] = new Uint8Array(prop.vals.buffer, prop.vals.byteOffset, prop.vals.byteLength);
+        }
+    }
+    if (obj.groups) {
+        for (let prop of obj.groups) {
+            zipObj[`groups/${getCorrectFname(prop)}`] = new Uint8Array(prop.vals.buffer, prop.vals.byteOffset, prop.vals.byteLength);
+        }
     }
 
     const zipped = fflate.zipSync(zipObj);

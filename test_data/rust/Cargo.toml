@@ -1,0 +1,8 @@
+
+[package]
+name = "test_rust"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+trx-rs = { path = "/home/local/USHERBROOKE/rhef1902/Libraries/trx/trx-nature-2026-benchmark/../trx-rs" }

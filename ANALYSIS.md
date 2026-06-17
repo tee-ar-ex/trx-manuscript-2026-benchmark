@@ -19,8 +19,9 @@ You will observe `[ERROR] Loading failed` for specific files during the benchmar
 
 | File Pattern | Failing Language(s) | Reason for Failure |
 | :--- | :--- | :--- |
-| `*ui64_w_metadata.trx` | **C++**, **JavaScript** | **64-bit Metadata Parsing:** These files contain *metadata* (per-vertex scalars or per-streamline properties) stored as 64-bit integers (`int64`). <br><br>👉 **C++**: The `trx-cpp` static library is strictly typed and throws an `Unsupported group dtype` exception to prevent data truncation.<br>👉 **JavaScript**: The V8 engine's WebGL-compatible `TypedArray` system lacks native 64-bit integer arrays. The JS reader throws an overflow error to protect data integrity. |
 | `*.trk` (with properties) | **Rust** (Strict mode) | **Strict Type Safety:** The `trx-rs` crate intentionally drops/panics on `.trk` files containing scalars to prevent silent data loss during conversion. *(Note: Our benchmark implements a custom `.trk` bypass parser in Rust to get around this for timing purposes).* |
+
+*(Note: Previously, C++ and JavaScript failed on `uint64`/`int64` metadata groups. This has been resolved in the underlying parsers by implementing a safe, validated downcasting layer to 32-bit representations where applicable, ensuring cross-platform stability.)*
 
 ---
 
@@ -40,7 +41,7 @@ The benchmark highlights drastic architectural differences between legacy format
 ### JavaScript Overhead & Hard Limits
 *   **JavaScript is consistently the slowest (up to 3x slower than Python).**
 *   **Why?** V8's single-threaded nature and garbage collection struggle with massive contiguous memory blocks. Reading a multi-gigabyte file requires allocating ArrayBuffers, unzipping them (`fflate`), and casting them into `Float32Arrays`, which triggers massive GC pauses.
-*   **The 4GB Contiguous Memory Wall:** V8 (`Node.js`) imposes a hard maximum of 4GB for a single `ArrayBuffer` (`Buffer.constants.MAX_LENGTH`). If an uncompressed geometry array inside a `.trx` archive exceeds 4GB, the JavaScript engine will irrevocably throw an `Array buffer allocation failed` exception. Parsing uncompressed datasets >4GB in JS is physically impossible without a streaming, chunk-based architectural rewrite.
+*   **The V8 Contiguous Memory Wall (Bypassed)**: V8 (`Node.js`) imposes a hard maximum of 4GB for a single `ArrayBuffer` (`Buffer.constants.MAX_LENGTH`). Previously, parsing uncompressed datasets >2GB in JS was physically impossible and triggered `Array buffer allocation failed`. We successfully bypassed this limitation by implementing a streaming, chunk-based architectural rewrite inside `streamlineIO.mjs` and `js/utils.js`, enabling the engine to safely process multi-gigabyte structures by mapping them directly into persistent `Float32Array` representations without duplicate buffering.
 
 ---
 

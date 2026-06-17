@@ -47,6 +47,14 @@ venv.bak/
 ### C++
 cpp/build/
 cpp/trx_benchmark
+test_data/cpp/build/
+test_data/cpp/test_cpp
+test_data/cpp/CMakeCache.txt
+test_data/cpp/CMakeFiles/
+test_data/cpp/Makefile
+test_data/cpp/cmake_install.cmake
+test_data/cpp/trx-cpp-build/
+test_data/cpp/_deps/
 CMakeCache.txt
 CMakeFiles/
 CMakeScripts/
@@ -61,6 +69,7 @@ compile_commands.json
 
 ### Rust
 rust/target/
+test_data/rust/target/
 /*.rs.bk
 
 ### Javascript / Node.js

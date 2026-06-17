@@ -107,6 +107,26 @@ To ensure scientific rigor and parity across all languages, the benchmarking mod
 
 ---
 
+## 🧪 Validation & Integrity Testing
+
+To ensure absolute cross-language parity, a unified validation suite (`unified_test.py`) was implemented.
+Be sure to run `bash run_benchmarks.sh build` before launching tests.
+
+Before benchmark timings are considered valid, the validation script performs the following rigorous sequence:
+1. Use the predefined `gold_standard.trx` (from [Gold Standard IO Dataset](https://zenodo.org/records/7767654)) tractography 3D coordinates, affine transformations, per-vertex colors, and per-streamline coordinates.
+2. Invokes the native loaders and savers of all 4 tracks (Python, JS, C++, and Rust) to independently round-trip the file into temporary archives (`tmp_*.trx`).
+3. Compares each resulting archive byte-by-byte in Python using `numpy` and `trx-python`.
+4. Validates that **all** output match perfectly:
+   - Offsets arrays (checking exact length, shape, data, and memory dtype)
+   - 3D Position coordinates
+   - Affine transformations (`VOXEL_TO_RASMM` float matches via `np.allclose`)
+   - Header Dimensions
+   - Data-per-vertex (DPV) and Data-per-streamline (DPS) dynamic keys, payloads, and datatypes.
+
+Any failure in any track instantly aborts the test. Currently, **all 4 languages pass this 100% integrity check.**
+
+---
+
 ## 📂 Repository Structure
 
 ```
@@ -251,6 +271,20 @@ To ensure identical parsing structures, every runner output writes to `results/<
 }
 
 ```
+
+## 🌍 Cloning & Running on a New Computer
+
+If you clone this repository onto a completely fresh computer, the `orchestrate.py build` command will **fail** from a clean environment. This is because the code does not pull dependencies from package managers, but instead heavily relies on having the local source code for the 4 TRX implementations cloned right alongside the benchmark folder (e.g., `../../trx-cpp`).
+
+**How to fix it for another computer:**
+To make the builds work correctly, you must recreate the exact workspace structure:
+1. Create a `Libraries/trx/` folder.
+2. Clone all 5 repositories into that folder (`trx-python`, `trx-rs`, `trx-cpp`, `trx-javascript`, and `trx-nature-2026-benchmark`).
+3. Download or copy your tractography dataset to that computer.
+4. Export the environment variable pointing to your data: `export TRX_BENCHMARK_DATA_DIR="/path/to/data"`
+5. *Then* you can safely run `./orchestrate.py build`.
+
+---
 
 ## 🔧 Setup & Installation (Language-by-Language)
 

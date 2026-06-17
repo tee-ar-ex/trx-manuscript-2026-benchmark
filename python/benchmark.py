@@ -1,3 +1,4 @@
+from utils import (release_memory, evict_from_cache, load_data)
 import os
 import sys
 import json
@@ -10,7 +11,6 @@ from fury import io
 # Ensure local python directory is in import path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from utils import (release_memory, evict_from_cache, load_data)
 
 FILENAMES = [
     "f16_ui32_w_metadata.trx", "f16_ui32_wo_metadata.trx",
@@ -28,6 +28,7 @@ FILENAMES = [
 EXPECTED_STREAMLINES = None
 EXPECTED_POINTS = None
 
+
 def get_counts(obj):
     if hasattr(obj, 'streamlines'):
         streamlines = obj.streamlines
@@ -37,17 +38,24 @@ def get_counts(obj):
     else:
         raise ValueError(f"Unknown object type: {type(obj)}")
 
+
 def main():
     data_dir = os.environ.get("TRX_BENCHMARK_DATA_DIR")
     if not data_dir:
-        sys.stderr.write("[ERROR] Environment variable TRX_BENCHMARK_DATA_DIR is not set.\n")
-        sys.exit(1)
-    
-    if not os.path.isdir(data_dir):
-        sys.stderr.write(f"[ERROR] TRX_BENCHMARK_DATA_DIR directory '{data_dir}' does not exist.\n")
+        sys.stderr.write(
+            "[ERROR] Environment variable TRX_BENCHMARK_DATA_DIR is not set.\n")
         sys.exit(1)
 
-    results_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "results")
+    if not os.path.isdir(data_dir):
+        sys.stderr.write(
+            f"[ERROR] TRX_BENCHMARK_DATA_DIR directory '{data_dir}' does not exist.\n")
+        sys.exit(1)
+
+    results_dir = os.path.join(
+        os.path.dirname(
+            os.path.dirname(
+                os.path.abspath(__file__))),
+        "results")
     os.makedirs(results_dir, exist_ok=True)
 
     tmp_save_dir = os.path.join(results_dir, "tmp_benchmark_saving")
@@ -73,7 +81,7 @@ def main():
             continue
 
         print(f"Benchmarking {filename}...")
-        
+
         # 1. Benchmark Loading
         load_times = []
         obj = None
@@ -86,25 +94,26 @@ def main():
             t0 = time.time()
             try:
                 obj = load_data(filepath)
-                
+
                 if hasattr(obj, 'streamlines'):
-                    obj.streamlines._data = obj.streamlines._data.astype(np.float32)
+                    obj.streamlines._data = obj.streamlines._data.astype(
+                        np.float32)
                 duration = time.time() - t0
-                
+
                 # Verify integrity
                 streamline_count, point_count = get_counts(obj)
                 global EXPECTED_STREAMLINES, EXPECTED_POINTS
                 if EXPECTED_STREAMLINES is None:
                     EXPECTED_STREAMLINES = streamline_count
                     EXPECTED_POINTS = point_count
-                
+
                 if streamline_count != EXPECTED_STREAMLINES or point_count != EXPECTED_POINTS:
                     raise ValueError(
                         f"Integrity check failed: expected {EXPECTED_STREAMLINES} streamlines "
-                        f"and {EXPECTED_POINTS} points, got {streamline_count} and {point_count}"
-                    )
+                        f"and {EXPECTED_POINTS} points, got {streamline_count} and {point_count}")
             except Exception as e:
-                sys.stderr.write(f"[ERROR] Loading failed for {filename} at iteration {i}: {e}\n")
+                sys.stderr.write(
+                    f"[ERROR] Loading failed for {filename} at iteration {i}: {e}\n")
                 loading_failed = True
                 break
 
@@ -147,7 +156,8 @@ def main():
                     save_trx(obj, save_path)
                 duration = time.time() - t0
             except Exception as e:
-                sys.stderr.write(f"[ERROR] Saving failed for {filename} at iteration {i}: {e}\n")
+                sys.stderr.write(
+                    f"[ERROR] Saving failed for {filename} at iteration {i}: {e}\n")
                 saving_failed = True
                 if os.path.exists(save_path):
                     try:
@@ -167,7 +177,8 @@ def main():
                 try:
                     os.remove(save_path)
                 except Exception as e:
-                    sys.stderr.write(f"[WARN] Failed to delete temp file {save_path}: {e}\n")
+                    sys.stderr.write(
+                        f"[WARN] Failed to delete temp file {save_path}: {e}\n")
 
         # Cleanup loaded object
         del obj
@@ -180,7 +191,7 @@ def main():
             avg_save = np.mean(save_times)
             std_save = np.std(save_times)
             print(f"  Summary Save: {avg_save:.4f} +/- {std_save:.4f} seconds")
-        
+
         print()
 
     # Final cleanup of temp directory
@@ -194,6 +205,7 @@ def main():
     with open(output_json, "w") as f:
         json.dump(results, f, indent=4)
     print(f"Results saved to {output_json}")
+
 
 if __name__ == "__main__":
     main()

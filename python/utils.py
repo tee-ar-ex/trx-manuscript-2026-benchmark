@@ -15,6 +15,7 @@ try:
 except Exception:
     libc = None
 
+
 def release_memory():
     """Force Python garbage collection and libc heap trimming."""
     gc.collect()
@@ -23,15 +24,18 @@ def release_memory():
         libc.malloc_trim(0)
     sleep(1)
 
+
 def evict_from_cache(filename):
     """Force OS page cache eviction for the data file."""
     try:
         fd = os.open(filename, os.O_RDONLY)
-        os.posix_fadvise(fd, 0, os.path.getsize(filename), 4) # 4 = POSIX_FADV_DONTNEED
+        os.posix_fadvise(fd, 0, os.path.getsize(
+            filename), 4)  # 4 = POSIX_FADV_DONTNEED
         os.close(fd)
         sleep(1)
     except Exception as e:
         print(f"      [WARN] Cache eviction failed for {filename}: {e}")
+
 
 def load_vtk_as_tractogram(filename):
     polydata = io.load_polydata(filename)
@@ -52,8 +56,9 @@ def load_vtk_as_tractogram(filename):
     conn_vtk = lines.GetConnectivityArray()
 
     if offsets_vtk is None or conn_vtk is None:
-        raise ValueError(f"Direct access to offsets/connectivity not available for {filename}. "
-                         "This function requires VTK 9.0+ style PolyData.")
+        raise ValueError(
+            f"Direct access to offsets/connectivity not available for {filename}. "
+            "This function requires VTK 9.0+ style PolyData.")
 
     points = numpy_support.vtk_to_numpy(points_vtk)
     offsets = numpy_support.vtk_to_numpy(offsets_vtk)
@@ -61,7 +66,10 @@ def load_vtk_as_tractogram(filename):
 
     # 2. Reorder points if connectivity is not trivial (identity mapping)
     # This ensures that PointData (dpp) and streamlines remain aligned.
-    if not np.all(connectivity == np.arange(len(connectivity), dtype=connectivity.dtype)):
+    if not np.all(
+        connectivity == np.arange(
+            len(connectivity),
+            dtype=connectivity.dtype)):
         points = points[connectivity]
         reorder_point_data = True
     else:
@@ -82,11 +90,11 @@ def load_vtk_as_tractogram(filename):
     dpp = {}
     point_data = polydata.GetPointData()
     num_expected_points = len(connectivity)
-    
+
     for i in range(point_data.GetNumberOfArrays()):
         name = point_data.GetArrayName(i)
         data = numpy_support.vtk_to_numpy(point_data.GetArray(i))
-        
+
         # Only include metadata that matches the point count
         if len(data) == num_expected_points:
             if reorder_point_data:
@@ -104,12 +112,16 @@ def load_vtk_as_tractogram(filename):
     for i in range(cell_data.GetNumberOfArrays()):
         name = cell_data.GetArrayName(i)
         data = numpy_support.vtk_to_numpy(cell_data.GetArray(i))
-        
+
         # Only include metadata that matches the cell count
         if len(data) == num_cells:
             dps[name] = data
 
-    return nib.streamlines.Tractogram(streamlines, data_per_point=dpp, data_per_streamline=dps)
+    return nib.streamlines.Tractogram(
+        streamlines,
+        data_per_point=dpp,
+        data_per_streamline=dps)
+
 
 def load_data(filename):
     _, ext = os.path.splitext(filename)
