@@ -8,22 +8,27 @@ from trx.trx_file_memmap import load
 BENCH_DIR = os.path.dirname(os.path.abspath(__file__))
 TEST_DIR = os.path.join(BENCH_DIR, "test_data")
 
+
 def run_tests_for_file(input_trx):
     print(f"\n======================================")
     print(f"Testing file: {os.path.basename(input_trx)}")
     print(f"======================================")
 
     print("Running Python...")
-    subprocess.run(["python", os.path.join(TEST_DIR, "run_py.py"), input_trx, os.path.join(TEST_DIR, "tmp_python.trx")], check=True)
+    subprocess.run(["python", os.path.join(TEST_DIR, "run_py.py"),
+                   input_trx, os.path.join(TEST_DIR, "tmp_python.trx")], check=True)
 
     print("Running JavaScript...")
-    subprocess.run(["node", os.path.join(TEST_DIR, "run_js.mjs"), input_trx, os.path.join(TEST_DIR, "tmp_js.trx")], check=True)
+    subprocess.run(["node", os.path.join(TEST_DIR, "run_js.mjs"),
+                   input_trx, os.path.join(TEST_DIR, "tmp_js.trx"), "--expose-gc --max-old-space-size=16384"], check=True)
 
     print("Running C++...")
-    subprocess.run(["./test_cpp", input_trx, os.path.join(TEST_DIR, "tmp_cpp.trx")], cwd=os.path.join(TEST_DIR, "cpp"), check=True)
+    subprocess.run(["./test_cpp", input_trx, os.path.join(TEST_DIR,
+                   "tmp_cpp.trx")], cwd=os.path.join(TEST_DIR, "cpp"), check=True)
 
     print("Running Rust...")
-    subprocess.run(["cargo", "run", "--release", "--", input_trx, os.path.join(TEST_DIR, "tmp_rust.trx")], cwd=os.path.join(TEST_DIR, "rust"), check=True, stdout=subprocess.DEVNULL)
+    subprocess.run(["cargo", "run", "--release", "--", input_trx, os.path.join(TEST_DIR, "tmp_rust.trx")],
+                   cwd=os.path.join(TEST_DIR, "rust"), check=True, stdout=subprocess.DEVNULL)
 
 
 def compare_trx(ref_path, test_path, name):
@@ -36,14 +41,16 @@ def compare_trx(ref_path, test_path, name):
         print(f"  [FAILED] Offsets mismatch in {name}")
         return False
     if ref.streamlines._offsets.dtype != test.streamlines._offsets.dtype:
-        print(f"  [WARNING] Offsets dtype mismatch in {name}: {ref.streamlines._offsets.dtype} != {test.streamlines._offsets.dtype}")
+        print(
+            f"  [WARNING] Offsets dtype mismatch in {name}: {ref.streamlines._offsets.dtype} != {test.streamlines._offsets.dtype}")
 
     # Check data (positions)
     if not np.allclose(ref.streamlines._data, test.streamlines._data, atol=1e-4):
         print(f"  [FAILED] Coordinates mismatch in {name}")
         return False
     if ref.streamlines._data.dtype != test.streamlines._data.dtype:
-        print(f"  [WARNING] Coordinates dtype mismatch in {name}: {ref.streamlines._data.dtype} != {test.streamlines._data.dtype}")
+        print(
+            f"  [WARNING] Coordinates dtype mismatch in {name}: {ref.streamlines._data.dtype} != {test.streamlines._data.dtype}")
 
     # Check header metadata
     if ref.header.get("NB_STREAMLINES") != test.header.get("NB_STREAMLINES"):
@@ -84,7 +91,8 @@ def compare_trx(ref_path, test_path, name):
 
     # Check groups
     if set(ref.groups.keys()) != set(test.groups.keys()):
-        print(f"  [FAILED] groups keys mismatch in {name}: {list(ref.groups.keys())} != {list(test.groups.keys())}")
+        print(
+            f"  [FAILED] groups keys mismatch in {name}: {list(ref.groups.keys())} != {list(test.groups.keys())}")
         return False
     for k in ref.groups.keys():
         if not np.array_equal(ref.groups[k], test.groups[k]):
@@ -106,7 +114,8 @@ def compare_trx(ref_path, test_path, name):
                 return False
             if hasattr(ref_dpg[d_k], 'dtype') and hasattr(test_dpg[d_k], 'dtype'):
                 if ref_dpg[d_k].dtype != test_dpg[d_k].dtype:
-                    print(f"  [WARNING] DPG {d_k} dtype mismatch for group {k} in {name}")
+                    print(
+                        f"  [WARNING] DPG {d_k} dtype mismatch for group {k} in {name}")
 
     print(f"  [PASSED] {name} identical to gold standard.")
     return True
@@ -114,12 +123,16 @@ def compare_trx(ref_path, test_path, name):
 
 if __name__ == "__main__":
     print("Compiling C++...")
-    subprocess.run(["cmake", "."], cwd=os.path.join(TEST_DIR, "cpp"), check=True, stdout=subprocess.DEVNULL)
-    subprocess.run(["make"], cwd=os.path.join(TEST_DIR, "cpp"), check=True, stdout=subprocess.DEVNULL)
+    subprocess.run(["cmake", "."], cwd=os.path.join(
+        TEST_DIR, "cpp"), check=True, stdout=subprocess.DEVNULL)
+    subprocess.run(["make"], cwd=os.path.join(TEST_DIR, "cpp"),
+                   check=True, stdout=subprocess.DEVNULL)
     print("Compiling Rust...")
-    subprocess.run(["cargo", "build", "--release"], cwd=os.path.join(TEST_DIR, "rust"), check=True, stdout=subprocess.DEVNULL)
+    subprocess.run(["cargo", "build", "--release"], cwd=os.path.join(TEST_DIR,
+                   "rust"), check=True, stdout=subprocess.DEVNULL)
 
-    trx_files = [f for f in os.listdir(TEST_DIR) if f.endswith(".trx") and not f.startswith("tmp_")]
+    trx_files = [f for f in os.listdir(TEST_DIR) if f.endswith(
+        ".trx") and not f.startswith("tmp_")]
     if not trx_files:
         print("No .trx files found to test.")
         sys.exit(0)
@@ -128,7 +141,7 @@ if __name__ == "__main__":
     for trx_file in trx_files:
         input_file = os.path.join(TEST_DIR, trx_file)
         run_tests_for_file(input_file)
-        
+
         for lang in ["python", "js", "cpp", "rust"]:
             p = os.path.join(TEST_DIR, f"tmp_{lang}.trx")
             if not compare_trx(input_file, p, lang.upper()):
