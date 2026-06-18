@@ -1,46 +1,140 @@
 import os
 import sys
 import subprocess
-import glob
 import numpy as np
-from trx.trx_file_memmap import load
 
 BENCH_DIR = os.path.dirname(os.path.abspath(__file__))
 TEST_DIR = os.path.join(BENCH_DIR, "test_data")
 
+# ---------------------------------------------------------------------------
+# Helpers to load any format into a common representation for comparison
+# ---------------------------------------------------------------------------
 
-def run_tests_for_file(input_trx):
+def load_as_arrays(filepath):
+    """Load any supported tractography file and return (pts, offsets) as numpy arrays.
+
+    Returns:
+        pts: np.ndarray of shape (N, 3) — float32 or float64 coordinates
+        offsets: np.ndarray of shape (M+1,) — cumulative point offsets (0-based)
+    """
+    ext = os.path.splitext(filepath)[1].lower()
+
+    if ext == '.trx':
+        from trx.trx_file_memmap import load as load_trx
+        trx = load_trx(filepath)
+        pts = np.array(trx.streamlines._data, dtype=np.float32)
+        offsets = np.array(trx.streamlines._offsets, dtype=np.int64)
+        # trx offsets are already cumulative with length = nb_streamlines+1
+        if len(offsets) == trx.header.get("NB_STREAMLINES", len(offsets)):
+            # offsets length equals nb_streamlines → need to append total
+            total_pts = len(pts)
+            offsets = np.append(offsets, total_pts)
+        return pts, offsets
+
+    elif ext in ('.trk', '.tck'):
+        import nibabel as nib
+        tractogram_file = nib.streamlines.load(filepath, lazy_load=False)
+        tractogram = tractogram_file.tractogram
+        streamlines = tractogram.streamlines
+        pts = np.array(streamlines._data, dtype=np.float32)
+        # Build cumulative offsets from lengths
+        lengths = np.array(streamlines._lengths, dtype=np.int64)
+        offsets = np.zeros(len(lengths) + 1, dtype=np.int64)
+        offsets[1:] = np.cumsum(lengths)
+        return pts, offsets
+
+    elif ext == '.vtk':
+        from fury.io import load_polydata
+        from vtkmodules.util import numpy_support
+        polydata = load_polydata(filepath)
+        points_vtk = polydata.GetPoints().GetData()
+        pts = np.array(numpy_support.vtk_to_numpy(points_vtk), dtype=np.float32)
+        lines = polydata.GetLines()
+        offsets_vtk = lines.GetOffsetsArray()
+        if offsets_vtk is not None:
+            offsets = np.array(numpy_support.vtk_to_numpy(offsets_vtk), dtype=np.int64)
+        else:
+            # Fallback: iterate cells
+            lines.InitTraversal()
+            from vtkmodules.vtkCommonCore import vtkIdList
+            id_list = vtkIdList()
+            offset_list = [0]
+            while lines.GetNextCell(id_list):
+                offset_list.append(offset_list[-1] + id_list.GetNumberOfIds())
+            offsets = np.array(offset_list, dtype=np.int64)
+        return pts, offsets
+
+    else:
+        raise ValueError(f"Unsupported format: {ext}")
+
+
+# ---------------------------------------------------------------------------
+# Runner dispatch — invoke each language's test binary
+# ---------------------------------------------------------------------------
+
+def run_tests_for_file(input_path, output_ext):
+    """Run all 4 language test runners on input_path, saving as output_ext.
+
+    Returns a dict {lang: True/False} indicating which runners succeeded.
+    """
     print(f"\n======================================")
-    print(f"Testing file: {os.path.basename(input_trx)}")
+    print(f"Testing: {os.path.basename(input_path)} → *{output_ext}")
     print(f"======================================")
 
-    print("Running Python...")
-    subprocess.run(["python", os.path.join(TEST_DIR, "run_py.py"),
-                   input_trx, os.path.join(TEST_DIR, "tmp_python.trx")], check=True)
+    runners = {
+        "python": [
+            "python", os.path.join(TEST_DIR, "run_py.py"),
+            input_path, os.path.join(TEST_DIR, f"tmp_python{output_ext}")
+        ],
+        "js": [
+            "node", "--expose-gc", "--max-old-space-size=16384",
+            os.path.join(TEST_DIR, "run_js.mjs"),
+            input_path, os.path.join(TEST_DIR, f"tmp_js{output_ext}")
+        ],
+        "cpp": [
+            "./test_cpp", input_path,
+            os.path.join(TEST_DIR, f"tmp_cpp{output_ext}")
+        ],
+        "rust": [
+            "cargo", "run", "--release", "--",
+            input_path, os.path.join(TEST_DIR, f"tmp_rust{output_ext}")
+        ],
+    }
 
     print("Running JavaScript...")
-    subprocess.run([
-        "node",
-        "--expose-gc",
-        "--max-old-space-size=16384",
-        os.path.join(TEST_DIR, "run_js.mjs"),
-        input_trx,
-        os.path.join(TEST_DIR, "tmp_js.trx"),
-    ], check=True)
+    cwd_map = {
+        "cpp": os.path.join(TEST_DIR, "cpp"),
+        "rust": os.path.join(TEST_DIR, "rust"),
+    }
 
-    print("Running C++...")
-    subprocess.run(["./test_cpp", input_trx, os.path.join(TEST_DIR,
-                   "tmp_cpp.trx")], cwd=os.path.join(TEST_DIR, "cpp"), check=True)
+    results = {}
+    for lang, cmd in runners.items():
+        print(f"Running {lang.upper()}...")
+        try:
+            kwargs = {"check": True}
+            if lang in cwd_map:
+                kwargs["cwd"] = cwd_map[lang]
+            if lang == "rust":
+                kwargs["stdout"] = subprocess.DEVNULL
+            subprocess.run(cmd, **kwargs)
+            results[lang] = True
+        except subprocess.CalledProcessError as e:
+            print(f"  [RUNNER ERROR] {lang.upper()} failed: {e}")
+            results[lang] = False
 
-    print("Running Rust...")
-    subprocess.run(["cargo", "run", "--release", "--", input_trx, os.path.join(TEST_DIR, "tmp_rust.trx")],
-                   cwd=os.path.join(TEST_DIR, "rust"), check=True, stdout=subprocess.DEVNULL)
+    return results
 
+
+# ---------------------------------------------------------------------------
+# Comparison functions
+# ---------------------------------------------------------------------------
 
 def compare_trx(ref_path, test_path, name):
+    """Full TRX comparison including metadata, DPV, DPS, groups."""
+    from trx.trx_file_memmap import load as load_trx
     print(f"\nValidating {name}...")
-    ref = load(ref_path)
-    test = load(test_path)
+    ref = load_trx(ref_path)
+    test = load_trx(test_path)
 
     # Check offsets
     if not np.array_equal(ref.streamlines._offsets, test.streamlines._offsets):
@@ -127,7 +221,51 @@ def compare_trx(ref_path, test_path, name):
     return True
 
 
+def compare_legacy(ref_path, test_path, name):
+    """Compare two legacy-format files (TRK, TCK, VTK) by loading both into
+    numpy arrays and checking streamline count + coordinate parity."""
+    print(f"\nValidating {name}...")
+
+    try:
+        ref_pts, ref_offsets = load_as_arrays(ref_path)
+        test_pts, test_offsets = load_as_arrays(test_path)
+    except Exception as e:
+        print(f"  [FAILED] Could not load files for {name}: {e}")
+        return False
+
+    # Check number of streamlines
+    ref_nb = len(ref_offsets) - 1
+    test_nb = len(test_offsets) - 1
+    if ref_nb != test_nb:
+        print(f"  [FAILED] Streamline count mismatch in {name}: {ref_nb} != {test_nb}")
+        return False
+
+    # Check total point count
+    if len(ref_pts) != len(test_pts):
+        print(f"  [FAILED] Total point count mismatch in {name}: {len(ref_pts)} != {len(test_pts)}")
+        return False
+
+    # Check offsets
+    if not np.array_equal(ref_offsets, test_offsets):
+        print(f"  [FAILED] Offsets mismatch in {name}")
+        return False
+
+    # Check coordinates
+    if not np.allclose(ref_pts, test_pts, atol=1e-4):
+        max_diff = np.max(np.abs(ref_pts - test_pts))
+        print(f"  [FAILED] Coordinates mismatch in {name} (max diff: {max_diff:.6f})")
+        return False
+
+    print(f"  [PASSED] {name} identical to gold standard.")
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
 if __name__ == "__main__":
+    # 1. Compile C++ and Rust test harnesses
     print("Compiling C++...")
     subprocess.run(["cmake", "."], cwd=os.path.join(
         TEST_DIR, "cpp"), check=True, stdout=subprocess.DEVNULL)
@@ -137,25 +275,58 @@ if __name__ == "__main__":
     subprocess.run(["cargo", "build", "--release"], cwd=os.path.join(TEST_DIR,
                    "rust"), check=True, stdout=subprocess.DEVNULL)
 
-    trx_files = [f for f in os.listdir(TEST_DIR) if f.endswith(
-        ".trx") and not f.startswith("tmp_")]
-    if not trx_files:
-        print("No .trx files found to test.")
-        sys.exit(0)
+    # 2. Discover gold standard test files
+    FORMATS = {
+        ".trx": "compare_trx",
+        ".trk": "compare_legacy",
+        ".tck": "compare_legacy",
+        ".vtk": "compare_legacy",
+    }
 
     all_passed = True
+
+    # --- TRX tests (full metadata comparison) ---
+    trx_files = sorted([f for f in os.listdir(TEST_DIR)
+                        if f.endswith(".trx") and not f.startswith("tmp_")])
     for trx_file in trx_files:
         input_file = os.path.join(TEST_DIR, trx_file)
-        run_tests_for_file(input_file)
+        runner_results = run_tests_for_file(input_file, ".trx")
 
         for lang in ["python", "js", "cpp", "rust"]:
+            if not runner_results.get(lang, False):
+                print(f"\n  [SKIPPED] {lang.upper()} (.trx) — runner failed")
+                all_passed = False
+                continue
             p = os.path.join(TEST_DIR, f"tmp_{lang}.trx")
-            if not compare_trx(input_file, p, lang.upper()):
+            if not compare_trx(input_file, p, f"{lang.upper()} (.trx)"):
                 all_passed = False
 
+    # --- Legacy format tests (TRK, TCK, VTK) ---
+    for ext in [".trk", ".tck", ".vtk"]:
+        legacy_files = sorted([f for f in os.listdir(TEST_DIR)
+                               if f.endswith(ext) and not f.startswith("tmp_")])
+        for legacy_file in legacy_files:
+            input_file = os.path.join(TEST_DIR, legacy_file)
+            runner_results = run_tests_for_file(input_file, ext)
+
+            for lang in ["python", "js", "cpp", "rust"]:
+                if not runner_results.get(lang, False):
+                    print(f"\n  [SKIPPED] {lang.upper()} ({ext}) — runner failed")
+                    all_passed = False
+                    continue
+                p = os.path.join(TEST_DIR, f"tmp_{lang}{ext}")
+                if not compare_legacy(input_file, p, f"{lang.upper()} ({ext})"):
+                    all_passed = False
+
+    # 3. Report
     if all_passed:
-        print("\nALL LANGUAGES PASSED INTEGRITY TESTS ON ALL FILES.")
+        print("\n" + "=" * 60)
+        print("ALL LANGUAGES PASSED INTEGRITY TESTS ON ALL FORMATS.")
+        print("=" * 60)
         sys.exit(0)
     else:
-        print("\nSOME TESTS FAILED.")
+        print("\n" + "=" * 60)
+        print("SOME TESTS FAILED.")
+        print("=" * 60)
         sys.exit(1)
+
