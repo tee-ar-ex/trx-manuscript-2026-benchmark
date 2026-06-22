@@ -4,7 +4,17 @@ This document provides a comprehensive breakdown of the benchmark suite's expect
 
 ---
 
-## 1. Expected Normal Behavior
+## 1. Recent Architecture Centralization
+Historically, the `trx-nature-2026-benchmark` repository contained massive amounts of duplicated IO logic across JavaScript, C++, and Rust in order to bypass shortcomings in the core `trx` libraries (especially regarding legacy TRK, TCK, and VTK support). 
+
+As of the latest major refactor:
+* **No IO Code in Benchmark:** All legacy loaders, writers, and format translators have been successfully migrated directly into the core libraries (`trx-javascript`, `trx-cpp`, and `trx-rs`). The benchmark repo now acts purely as an orchestrator.
+* **Metadata Integrity:** Translating from legacy formats (or memory-mapped TRXs) no longer drops original header metadata. For instance, `trx-cpp` caches the `original_trx` state to prevent destructive downcasting during standard conversions.
+* **Perfect Precision:** By meticulously mapping `rasmm` to voxel space using inverse affine transforms (especially during JS TRK export), cross-language coordinate parity is maintained to within 0.001mm tolerance.
+
+---
+
+## 2. Expected Normal Behavior
 
 *   **Dynamic Baseline Scaling**: The orchestrator is designed to run completely blind to the initial dataset size. It dynamically records the streamline and point counts of the *first successfully loaded file* and establishes it as the truth. Therefore, it is entirely normal to swap between a tiny 10k streamline dataset and a 90GB production dataset without modifying any code.
 *   **Cold vs. Warm Runs**: 

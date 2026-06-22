@@ -1,6 +1,5 @@
 use std::env;
-use std::fs;
-use std::io::Write;
+
 use std::path::Path;
 
 
@@ -13,7 +12,7 @@ use std::path::Path;
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() < 3 {
-        eprintln!("Usage: test_rust <input_file> <output_file>");
+        eprintln!("Usage: test_rust <input_file> <output_file> [--ref <nifti>]");
         return;
     }
     let input_file = &args[1];
@@ -21,15 +20,23 @@ fn main() {
     let input_path = Path::new(input_file);
     let output_path = Path::new(output_file);
 
+    let mut ref_nifti: Option<&Path> = None;
+    if args.len() >= 5 && args[3] == "--ref" {
+        ref_nifti = Some(Path::new(&args[4]));
+    }
+
     let _in_ext = input_path.extension().and_then(|e| e.to_str()).unwrap_or("");
     let out_ext = output_path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
-    // Load: try trx-rs first, fall back to custom loader for TRK with scalars
-    let tractogram = trx_rs::read_tractogram(input_path, &trx_rs::ConversionOptions::default()).unwrap();
+    let mut tractogram = trx_rs::read_tractogram(input_path, &trx_rs::ConversionOptions::default()).unwrap();
+    if let Some(ref_path) = ref_nifti {
+        if let Ok(hdr) = trx_rs::legacy_io::load_nifti_header(ref_path) {
+            tractogram.set_header(hdr);
+        }
+    }
 
-    // Save: trx-rs refuses TRK export, so use custom writer for .trk
     if out_ext == "trk" {
-        trx_rs::legacy_io::write_trk(output_path, &tractogram).expect("Failed to save TRK");
+        trx_rs::legacy_io::write_trk(output_path, &tractogram, ref_nifti).expect("Failed to save TRK");
     } else {
         let options = trx_rs::ConversionOptions::default();
         trx_rs::write_tractogram(output_path, &tractogram, &options)

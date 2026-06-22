@@ -269,7 +269,12 @@ def main():
                 os.remove(os.path.join("results", f))
 
         # Clean test_data artifacts
-        for f in glob.glob("test_data/tmp_*.trx"):
+        for f in glob.glob("test_data/tmp*.*"):
+            try:
+                os.remove(f)
+            except BaseException:
+                pass
+        for f in glob.glob("test_data/relay*.*"):
             try:
                 os.remove(f)
             except BaseException:

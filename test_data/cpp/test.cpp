@@ -8,11 +8,15 @@ namespace fs = std::filesystem;
 
 int main(int argc, char** argv) {
     if (argc < 3) {
-        std::cerr << "Usage: test_cpp <input_file> <output_file>" << std::endl;
+        std::cerr << "Usage: test_cpp <input_file> <output_file> [--ref <nifti>]" << std::endl;
         return 1;
     }
     std::string input_file = argv[1];
     std::string output_file = argv[2];
+    std::string ref_nifti = "";
+    if (argc >= 5 && std::string(argv[3]) == "--ref") {
+        ref_nifti = argv[4];
+    }
     std::string ext = fs::path(input_file).extension().string();
     std::string out_ext = fs::path(output_file).extension().string();
 
@@ -41,7 +45,7 @@ int main(int argc, char** argv) {
     if (out_ext == ".trx") {
         saved = save_trx(tr, output_file);
     } else if (out_ext == ".trk") {
-        saved = save_trk(tr, output_file, fs::path(input_file).filename().string());
+        saved = save_trk(tr, output_file, fs::path(input_file).filename().string(), ref_nifti);
     } else if (out_ext == ".tck") {
         saved = save_tck(tr, output_file);
     } else if (out_ext == ".vtk") {

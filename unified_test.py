@@ -10,6 +10,7 @@ TEST_DIR = os.path.join(BENCH_DIR, "test_data")
 # Helpers to load any format into a common representation for comparison
 # ---------------------------------------------------------------------------
 
+
 def load_as_arrays(filepath):
     """Load any supported tractography file and return (pts, offsets) as numpy arrays.
 
@@ -77,28 +78,32 @@ def run_tests_for_file(input_path, output_ext):
 
     Returns a dict {lang: True/False} indicating which runners succeeded.
     """
-    print(f"\n======================================")
+    print("======================================")
     print(f"Testing: {os.path.basename(input_path)} → *{output_ext}")
-    print(f"======================================")
+    print("======================================")
+
+    ext_in = os.path.splitext(input_path)[1].lower()
+    needs_ref = (ext_in in [".tck", ".vtk"]) and (output_ext in [".trx", ".trk"])
+    ref_args = ["--ref", os.path.join(TEST_DIR, "fa.nii")] if needs_ref else []
 
     runners = {
         "python": [
             "python", os.path.join(TEST_DIR, "run_py.py"),
             input_path, os.path.join(TEST_DIR, f"tmp_python{output_ext}")
-        ],
+        ] + ref_args,
         "js": [
             "node", "--expose-gc", "--max-old-space-size=16384",
             os.path.join(TEST_DIR, "run_js.mjs"),
             input_path, os.path.join(TEST_DIR, f"tmp_js{output_ext}")
-        ],
+        ] + ref_args,
         "cpp": [
             "./test_cpp", input_path,
             os.path.join(TEST_DIR, f"tmp_cpp{output_ext}")
-        ],
+        ] + ref_args,
         "rust": [
             "cargo", "run", "--release", "--",
             input_path, os.path.join(TEST_DIR, f"tmp_rust{output_ext}")
-        ],
+        ] + ref_args,
     }
 
     print("Running JavaScript...")
@@ -287,7 +292,7 @@ if __name__ == "__main__":
 
     # --- TRX tests (full metadata comparison) ---
     trx_files = sorted([f for f in os.listdir(TEST_DIR)
-                        if f.endswith(".trx") and not f.startswith("tmp_")])
+                        if f.endswith(".trx") and not f.startswith("tmp_") and not f.startswith("relay")])
     for trx_file in trx_files:
         input_file = os.path.join(TEST_DIR, trx_file)
         runner_results = run_tests_for_file(input_file, ".trx")
@@ -304,7 +309,7 @@ if __name__ == "__main__":
     # --- Legacy format tests (TRK, TCK, VTK) ---
     for ext in [".trk", ".tck", ".vtk"]:
         legacy_files = sorted([f for f in os.listdir(TEST_DIR)
-                               if f.endswith(ext) and not f.startswith("tmp_")])
+                               if f.endswith(ext) and not f.startswith("tmp_") and not f.startswith("relay")])
         for legacy_file in legacy_files:
             input_file = os.path.join(TEST_DIR, legacy_file)
             runner_results = run_tests_for_file(input_file, ext)
@@ -318,7 +323,19 @@ if __name__ == "__main__":
                 if not compare_legacy(input_file, p, f"{lang.upper()} ({ext})"):
                     all_passed = False
 
-    # 3. Report
+    # 4. Cleanup
+    print("\nCleaning up intermediary tmp files...")
+    import glob
+    import shutil
+    for f in glob.glob(os.path.join(TEST_DIR, "tmp_*.*")):
+        try:
+            if os.path.isdir(f):
+                shutil.rmtree(f)
+            else:
+                os.remove(f)
+        except BaseException:
+            pass
+
     if all_passed:
         print("\n" + "=" * 60)
         print("ALL LANGUAGES PASSED INTEGRITY TESTS ON ALL FORMATS.")
@@ -329,4 +346,3 @@ if __name__ == "__main__":
         print("SOME TESTS FAILED.")
         print("=" * 60)
         sys.exit(1)
-

@@ -8,9 +8,7 @@ pub fn evict_from_cache<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
     let fd = file.as_raw_fd();
     let len = file.metadata()?.len();
 
-    let ret = unsafe {
-        libc::posix_fadvise(fd, 0, len as libc::off_t, libc::POSIX_FADV_DONTNEED)
-    };
+    let ret = unsafe { libc::posix_fadvise(fd, 0, len as libc::off_t, libc::POSIX_FADV_DONTNEED) };
 
     if ret != 0 {
         return Err(std::io::Error::from_raw_os_error(ret));
@@ -18,4 +16,3 @@ pub fn evict_from_cache<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
 
     Ok(())
 }
-

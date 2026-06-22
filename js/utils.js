@@ -73,4 +73,4 @@ export async function loadData(filepath) {
     }
 }
 
-export { saveTCK, saveTRK, saveVTK, saveTRX } from '../../trx-javascript/streamlineIO.mjs';
+export { saveTCK, saveTRK, saveVTK, saveTRX, readNiftiHeader } from '../../trx-javascript/streamlineIO.mjs';
