@@ -191,8 +191,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let t0 = Instant::now();
             let tractogram = match ext {
-                ".trk" => utils::load_trk(&path).map_err(|e| e.to_string()),
-                ".vtk" => utils::load_vtk(&path).map_err(|e| e.to_string()),
+                ".trk" => trx_rs::legacy_io::load_trk(&path).map_err(|e| e.to_string()),
+                ".vtk" => trx_rs::legacy_io::load_vtk(&path).map_err(|e| e.to_string()),
                 _ => trx_rs::read_tractogram(&path, &trx_rs::ConversionOptions::default()).map_err(|e| e.to_string())
             };
             let tractogram = match tractogram {

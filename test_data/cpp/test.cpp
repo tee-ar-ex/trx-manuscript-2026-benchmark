@@ -1,4 +1,5 @@
 #include "utils.hpp"
+using namespace trx::legacy;
 #include <iostream>
 #include <string>
 #include <filesystem>
