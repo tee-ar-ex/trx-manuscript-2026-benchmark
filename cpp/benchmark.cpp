@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <map>
 #include "utils.hpp"
+using namespace trx::legacy;
 
 namespace fs = std::filesystem;
 

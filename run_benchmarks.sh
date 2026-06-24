@@ -31,6 +31,8 @@ echo "[INFO] TRX_BENCHMARK_DATA_DIR is set to: ${TRX_BENCHMARK_DATA_DIR}"
 if [ "${1:-}" == "clean" ]; then
     echo "Cleaning build directories..."
     rm -rf cpp/build rust/target results/ js/node_modules
+    echo "Cleaning temporary test data..."
+    rm -f test_data/tmp* test_data/relay*
     exit 0
 fi
 

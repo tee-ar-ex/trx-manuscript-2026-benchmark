@@ -113,8 +113,8 @@ To ensure absolute cross-language parity, a unified validation suite (`unified_t
 Be sure to run `bash run_benchmarks.sh build` before launching tests.
 
 Before benchmark timings are considered valid, the validation script performs the following rigorous sequence:
-1. Use the predefined `gold_standard.trx` (from [Gold Standard IO Dataset](https://zenodo.org/records/7767654)) tractography 3D coordinates, affine transformations, per-vertex colors, and per-streamline coordinates.
-2. Invokes the native loaders and savers of all 4 tracks (Python, JS, C++, and Rust) to independently round-trip the file into temporary archives (`tmp_*.trx`).
+1. Dynamically discovers every tractography file (`.trx`, `.trk`, `.tck`, `.vtk`) in the testing directory and uses each file as its own implicit "gold standard" to establish a baseline for 3D coordinates, affine transformations, and metadata. For legacy format conversions (e.g., TCK/VTK -> TRX), a reference NIfTI volume (`fa.nii`) is automatically supplied via the `--ref` CLI argument to reconstruct missing spatial metadata.
+2. Invokes the native loaders and savers of all 4 tracks (Python, JS, C++, and Rust) to independently perform a full load-and-save round-trip on the file, generating temporary archives (`tmp_*`).
 3. Compares each resulting archive byte-by-byte in Python using `numpy` and `trx-python`.
 4. Validates that **all** output match perfectly:
    - Offsets arrays (checking exact length, shape, data, and memory dtype)
@@ -203,7 +203,7 @@ Relies on Rust's compile-time RAII (Resource Acquisition Is Initialization). Obj
 * **Cache Eviction**:
 Uses native C bindings via the `libc` crate: `libc::posix_fadvise(fd, 0, 0, libc::POSIX_FADV_DONTNEED)`.
 * **Write Capability**:
-Supports writing all formats (TRX, TRK, TCK, VTK). A custom, highly optimized TrackVis (.trk) reader and writer was implemented in `rust/src/utils.rs` to bypass the `trx-rs` library's strict loading checks and intentional omission of the TRK writer.
+Supports writing all formats (TRX, TRK, TCK, VTK). Following the 2026 centralization refactor, legacy IO parsing and writing is natively exposed via the `trx_rs::legacy_io` module rather than existing as duplicated code inside the benchmark runner.
 
 ### ⚡ C++
 
@@ -217,9 +217,8 @@ The C++ track represents the high-performance compiled baseline, built under str
 
 * **Optimization**:
 Compiled using CMake in `Release` mode with maximum optimizations (`-O3`).
-* **Custom Legacy Format Parsers**:
-To avoid the enormous overhead of standard mesh structures, a lightweight, highly optimized binary parser was implemented in `cpp/utils.cpp`.
-* *TCK/TRK/VTK*: Coordinates are counted by scanning binary data chunks directly from a file buffer rather than copying them into Eigen dynamic matrices, allowing high-performance parsing that serves as a baseline for the physics/geometry level.
+* **Legacy Format Parsers**:
+The `trx-cpp` library now features a `trx::legacy` namespace containing highly efficient, handwritten parsers and writers for TrackVis (.trk), MRtrix (.tck), and VTK (.vtk) geometries. The `Tractogram` cache structure securely retains internal pointers to memory-mapped `trx` structs to prevent metadata loss during serialization.
 
 
 * **Memory Management**:
@@ -227,8 +226,7 @@ Utilizes smart pointers and custom scopes for RAII. Calls `malloc_trim(0)` betwe
 * **Cache Eviction**:
 Uses standard `<fcntl.h>` system calls to get a raw file descriptor and call `posix_fadvise(fd, 0, 0, POSIX_FADV_DONTNEED)`.
 * **Write Capability**:
-Supports writing all formats (TRX, TRK, TCK, VTK). Highly optimized C++ encoders for TCK, TRK, and VTK are implemented in `cpp/utils.cpp` utilizing low-overhead binary chunk buffering.
-
+Supports writing all formats (TRX, TRK, TCK, VTK). Highly optimized C++ encoders for TCK, TRK, and VTK are implemented natively in the `trx::legacy` module inside `trx-cpp`, replacing the legacy `cpp/utils.cpp` script.
 ### 🌐 JavaScript (Node.js)
 
 The JavaScript track evaluates the performance of the V8 JavaScript engine running under Node.js. Processing multi-gigabyte files in JS presents several engine-level challenges, which were solved using custom workarounds.
@@ -247,8 +245,7 @@ The JavaScript track evaluates the performance of the V8 JavaScript engine runni
 4.  **V8 Heap Memory Configuration**: Large datasets cause Node.js processes to exceed the default heap limit (1.4 GB) and crash with out-of-memory (OOM) errors. The benchmark runner must be invoked with `--max-old-space-size=16384` to expand the heap limit to 16 GB.
 5.  **Garbage Collection**: Node is run with the `--expose-gc` flag. Programmatic memory reclamation is triggered before each run using `global.gc()`.
 *   **Write Capability**:
-Supports writing all formats (TRX, TRK, TCK, VTK) using high-performance chunked encoders in `js/utils.js`. The TRX format is serialized directly to a zip-based archive using `fflate.zipSync`.
-
+Supports writing all formats (TRX, TRK, TCK, VTK) via the `streamlineIO.mjs` module inside the `trx-javascript` core library. The legacy format parsers and generators previously housed in `js/utils.js` were centralized to ensure perfect inverse-affine coordinate parity for formats like TRK.
 ---
 
 ## 📊 Uniform JSON Schema
@@ -433,7 +430,7 @@ This triggers:
 
 ### Option B: Running Languages Individually
 
-If you want to debug or isolate execution to a single language track, run the scripts directly from the repository root:
+If you want to debug or isolate execution to a single language track, run the scripts directly from the repository root. Note: When converting legacy formats without embedded spatial metadata (`.tck`, `.vtk`) to formats requiring it (`.trx`, `.trk`), you must append `--ref test_data/fa.nii` to the CLI command to reconstruct the affine structures:
 
 * **Python**:
 ```bash
