@@ -150,7 +150,12 @@ def main():
                 if ext in [".trk", ".tck"]:
                     nib.streamlines.save(obj, save_path)
                 elif ext in [".vtk", ".vtp", ".fib"]:
-                    io.save_polydata(obj, save_path, binary=True)
+                    import vtk
+                    writer = vtk.vtkPolyDataWriter()
+                    writer.SetFileName(save_path)
+                    writer.SetFileTypeToBinary()
+                    writer.SetInputData(obj)
+                    writer.Write()
                 elif ext == ".trx":
                     from trx.trx_file_memmap import save as save_trx
                     save_trx(obj, save_path)

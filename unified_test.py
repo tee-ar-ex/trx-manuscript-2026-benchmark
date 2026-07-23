@@ -270,17 +270,7 @@ def compare_legacy(ref_path, test_path, name):
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    # 1. Compile C++ and Rust test harnesses
-    print("Compiling C++...")
-    subprocess.run(["cmake", "."], cwd=os.path.join(
-        TEST_DIR, "cpp"), check=True, stdout=subprocess.DEVNULL)
-    subprocess.run(["make"], cwd=os.path.join(TEST_DIR, "cpp"),
-                   check=True, stdout=subprocess.DEVNULL)
-    print("Compiling Rust...")
-    subprocess.run(["cargo", "build", "--release"], cwd=os.path.join(TEST_DIR,
-                   "rust"), check=True, stdout=subprocess.DEVNULL)
-
-    # 2. Discover gold standard test files
+    # Discover gold standard test files
     FORMATS = {
         ".trx": "compare_trx",
         ".trk": "compare_legacy",
@@ -323,7 +313,7 @@ if __name__ == "__main__":
                 if not compare_legacy(input_file, p, f"{lang.upper()} ({ext})"):
                     all_passed = False
 
-    # 4. Cleanup
+    # Cleanup
     print("\nCleaning up intermediary tmp files...")
     import glob
     import shutil
