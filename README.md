@@ -394,7 +394,7 @@ The orchestration scripts compile all targets, run the benchmark cycles, and gen
 
 1. **Run Everything (Build, Run, & Report)**:
 ```bash
-./run_benchmarks.sh
+python3 orchestrate.py
 
 ```
 This triggers:
@@ -407,24 +407,24 @@ This triggers:
 2.  **Targeted Pipeline Commands**:
 *   **Build Only**: Compile Rust and C++ runners and set up Node packages.
 ```bash
-./run_benchmarks.sh build
+python3 orchestrate.py build
 
 ```
 
 *   **Run Only**: Execute the benchmark runs (assuming they are already compiled).
 ```bash
-./run_benchmarks.sh run
+python3 orchestrate.py run
 
 ```
 *   **Report Only**: Regenerate the Markdown comparison summary table from existing `results/*.json` files.
 ```bash
-./run_benchmarks.sh report
+python3 orchestrate.py report
 
 ```
 
 *   **Clean Build**: Remove all compiled artifacts, cache directories, and generated `results/` JSONs to start fresh.
 ```bash
-./run_benchmarks.sh clean
+python3 orchestrate.py clean
 
 ```
 
