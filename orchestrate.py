@@ -171,7 +171,7 @@ def load_results(out_dir):
     return results
 
 
-def compute_stats(runs):
+def compute_stats(runs, file_size_mb=None):
     if not runs:
         return "N/A"
     valid_runs = [r for r in runs if r is not None]
@@ -180,7 +180,11 @@ def compute_stats(runs):
 
     mean = np.mean(valid_runs)
     std = np.std(valid_runs)
-    return f"{mean:.4f} ± {std:.4f}"
+    res = f"{mean:.4f} ± {std:.4f}"
+    if file_size_mb and mean > 0:
+        throughput = file_size_mb / mean
+        res += f" ({throughput:.0f} MB/s)"
+    return res
 
 
 def generate_report(out_dir):
@@ -207,6 +211,13 @@ def generate_report(out_dir):
     for filename in FILENAMES:
         row = [f"`{filename}`"]
 
+        file_size_mb = None
+        data_dir = os.environ.get('TRX_BENCHMARK_DATA_DIR')
+        if data_dir:
+            filepath = os.path.join(data_dir, filename)
+            if os.path.exists(filepath):
+                file_size_mb = os.path.getsize(filepath) / 1000000.0
+
         for lang in LANGUAGES:
             lang_data = results.get(lang)
             load_str = "N/A"
@@ -216,10 +227,10 @@ def generate_report(out_dir):
                 res = lang_data["results"]
 
                 loading_runs = res.get("loading", {}).get(filename)
-                load_str = compute_stats(loading_runs)
+                load_str = compute_stats(loading_runs, file_size_mb)
 
                 saving_runs = res.get("saving", {}).get(filename)
-                save_str = compute_stats(saving_runs)
+                save_str = compute_stats(saving_runs, file_size_mb)
 
             row.extend([load_str, save_str])
 

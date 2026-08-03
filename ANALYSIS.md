@@ -14,6 +14,33 @@ As of the latest major refactor:
 
 ---
 
+## 2. I/O Architecture & Streaming IO Updates
+
+A major update across `trx-javascript`, `trx-rs`, and `trx-cpp` fundamentally shifted the I/O strategy to eliminate unnecessary in-memory duplication and monolithic processing, which historically caused fragmentation and Out-Of-Memory (OOM) crashes on large datasets.
+
+### The Problem with Monolithic Reading/Writing
+The original approach read the entire `.trx` file into a single RAM buffer, extracting all inner ZIP payload files into new simultaneous memory buffers. Saving did the reverse, building the complete ZIP structure in RAM. Extracting arrays often involved slicing memory (`.slice()`), creating a third copy of the data. For a 2.5GB geometry file, peak memory usage easily ballooned past 7.5GB+, causing severe memory fragmentation and garbage collection thrashing.
+
+### The Optimized Approach: Streaming & Direct I/O
+The TRX file is no longer treated as a generic ZIP to be extracted all at once. It is treated as a container of memory-mappable arrays.
+
+**For Loading (Reading):**
+Instead of extracting the ZIP into RAM, the parsers utilize **Direct-From-Disk Offset Reading**:
+1. The parser reads the ZIP's Central Directory (at the end of the file) to find exact byte offsets and sizes.
+2. It jumps directly to the payload (skipping the Local File Header).
+3. If the file is uncompressed (true 99% of the time), OS-level reads (like `fs.readSync` in JS, or `mmap`/`pread` in C++ and Rust) pull the bytes directly into the final `Float32Array` or `Uint32Array` target.
+**Why it's better:** It eliminates intermediate memory copies. We load exactly what we need into its final resting place. In C++ and Rust, these uncompressed payloads are memory-mapped directly from the disk, requiring almost zero initial heap memory.
+
+**For Saving (Writing):**
+Instead of building a massive ZIP structure in RAM, a **Streaming ZIP Writer** is used:
+1. The writer iterates over each array (positions, offsets, metadata).
+2. For each file, its ZIP Local File Header is written directly to the disk stream.
+3. Array data is streamed directly from its original memory location to the disk, chunk by chunk if necessary.
+4. Offsets and sizes are recorded to write the ZIP Central Directory at the very end of the file.
+**Why it's better:** It uses almost zero extra memory. Peak memory usage during saving is essentially just the size of the array being written, bypassing the need to hold the final `.trx` file in RAM.
+
+---
+
 ## 2. Expected Normal Behavior
 
 *   **Dynamic Baseline Scaling**: The orchestrator is designed to run completely blind to the initial dataset size. It dynamically records the streamline and point counts of the *first successfully loaded file* and establishes it as the truth. Therefore, it is entirely normal to swap between a tiny 10k streamline dataset and a 90GB production dataset without modifying any code.

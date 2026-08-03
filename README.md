@@ -109,19 +109,13 @@ To ensure scientific rigor and parity across all languages, the benchmarking mod
 
 ## 🧪 Validation & Integrity Testing
 
-To ensure absolute cross-language parity, a unified validation suite (`unified_test.py`) was implemented.
-Be sure to run `bash run_benchmarks.sh build` before launching tests.
+To ensure absolute cross-language parity and stability under stress, the benchmark relies on three distinct validation suites (`unified_tests.py`, `relay_tests.py`, and `extreme_tests.py`).
+Be sure to run `python3 orchestrate.py build` before launching tests.
 
-Before benchmark timings are considered valid, the validation script performs the following rigorous sequence:
-1. Dynamically discovers every tractography file (`.trx`, `.trk`, `.tck`, `.vtk`) in the testing directory and uses each file as its own implicit "gold standard" to establish a baseline for 3D coordinates, affine transformations, and metadata. For legacy format conversions (e.g., TCK/VTK -> TRX), a reference NIfTI volume (`fa.nii`) is automatically supplied via the `--ref` CLI argument to reconstruct missing spatial metadata.
-2. Invokes the native loaders and savers of all 4 tracks (Python, JS, C++, and Rust) to independently perform a full load-and-save round-trip on the file, generating temporary archives (`tmp_*`).
-3. Compares each resulting archive byte-by-byte in Python using `numpy` and `trx-python`.
-4. Validates that **all** output match perfectly:
-   - Offsets arrays (checking exact length, shape, data, and memory dtype)
-   - 3D Position coordinates
-   - Affine transformations (`VOXEL_TO_RASMM` float matches via `np.allclose`)
-   - Header Dimensions
-   - Data-per-vertex (DPV) and Data-per-streamline (DPS) dynamic keys, payloads, and datatypes.
+Before benchmark timings are considered valid, these scripts perform the following rigorous sequence:
+1. **Unified Testing (`unified_tests.py`)**: Dynamically discovers every tractography file in the testing directory and uses each file as an implicit "gold standard". It invokes the native loaders and savers of all 4 tracks to perform a full load-and-save round-trip, comparing each output byte-by-byte in Python to validate offsets, 3D coordinates, and metadata perfectly match the original.
+2. **Relay Testing (`relay_tests.py`)**: Cascades the output of one language into the input of the next (e.g., Python -> Rust -> C++ -> JavaScript) to mathematically prove cumulative interoperability and ensure zero metadata drift during conversions.
+3. **Extreme Edge-Case Testing (`extreme_tests.py`)**: Synthetically generates edge-case datasets (e.g., 0-vertex empty files, `NaN`/`Inf` injection, mid-file truncations, dictionary stress, and 1GB throughput equivalence checks) to ensure absolute stability and scale without fragmentation or panics.
 
 Any failure in any track instantly aborts the test. Currently, **all 4 languages pass this 100% integrity check.**
 
@@ -129,11 +123,13 @@ Any failure in any track instantly aborts the test. Currently, **all 4 languages
 
 ## 📂 Repository Structure
 
-```
+```text
 trx-nature-2026-benchmark/
 ├── README.md                 # Scientific context, setup, and language guide
 ├── orchestrate.py            # Master Python controller for building, running, and reporting
-├── run_benchmarks.sh         # Bash entry point setting the environment and invoking python
+├── unified_tests.py          # Unified isolated integrity tests
+├── relay_tests.py            # Relay cascading interoperability tests
+├── extreme_tests.py          # Extreme synthetic edge-case and scaling tests
 ├── results/                  # Consolidated benchmark results
 │   ├── python_results.json
 │   ├── rust_results.json
@@ -274,12 +270,31 @@ To ensure identical parsing structures, every runner output writes to `results/<
 If you clone this repository onto a completely fresh computer, the `orchestrate.py build` command will **fail** from a clean environment. This is because the code does not pull dependencies from package managers, but instead heavily relies on having the local source code for the 4 TRX implementations cloned right alongside the benchmark folder (e.g., `../../trx-cpp`).
 
 **How to fix it for another computer:**
-To make the builds work correctly, you must recreate the exact workspace structure:
-1. Create a `Libraries/trx/` folder.
-2. Clone all 5 repositories into that folder (`trx-python`, `trx-rs`, `trx-cpp`, `trx-javascript`, and `trx-nature-2026-benchmark`).
-3. Download or copy your tractography dataset to that computer.
-4. Export the environment variable pointing to your data: `export TRX_BENCHMARK_DATA_DIR="/path/to/data"`
-5. *Then* you can safely run `./orchestrate.py build`.
+To make the builds work correctly, you must recreate the exact workspace structure by cloning all 5 repositories into a shared parent directory. You can copy and paste the following commands:
+
+```bash
+mkdir -p Libraries/trx
+cd Libraries/trx
+git clone https://github.com/tee-ar-ex/trx-python.git
+git clone https://github.com/tee-ar-ex/trx-rs.git
+git clone https://github.com/tee-ar-ex/trx-cpp.git
+git clone https://github.com/tee-ar-ex/trx-javascript.git
+git clone https://github.com/tee-ar-ex/trx-nature-2026-benchmark.git
+cd trx-nature-2026-benchmark
+```
+
+**Before running the orchestrator:**
+`orchestrate.py` is written in Python and requires `numpy`. Ensure you have completed the **Python Setup** (created a venv and installed `requirements.txt`) before attempting to build.
+
+Additionally, export the environment variable pointing to your downloaded tractography dataset: 
+```bash
+export TRX_BENCHMARK_DATA_DIR="/path/to/data"
+```
+
+*Then* you can safely run:
+```bash
+python3 orchestrate.py build
+```
 
 ---
 

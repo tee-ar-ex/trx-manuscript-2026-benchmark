@@ -1,5 +1,6 @@
 import sys
 import os
+import numpy as np
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
@@ -10,8 +11,10 @@ if __name__ == "__main__":
 
     if ext == '.trx':
         from trx.trx_file_memmap import load, save
-        t = load(input_file)
-        save(t, output_file)
+        trx = load(input_file)
+        trx.to_memory()
+        trx.streamlines._data = trx.streamlines._data.astype(np.float32)
+        save(trx, output_file)
     elif ext in ('.trk', '.tck'):
         import nibabel as nib
         tractogram_file = nib.streamlines.load(input_file, lazy_load=False)
