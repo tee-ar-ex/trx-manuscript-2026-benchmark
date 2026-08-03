@@ -64,6 +64,8 @@ async function main() {
         }
     };
 
+    const numIterations = process.env.TRX_BENCHMARK_ITERATIONS ? parseInt(process.env.TRX_BENCHMARK_ITERATIONS, 10) : 10;
+
     const args = process.argv.slice(2);
     const targetFilenames = args.length > 0 ? args : FILENAMES;
 
@@ -82,7 +84,7 @@ async function main() {
         const loadTimes = [];
         let loadingFailed = false;
 
-        for (let i = 0; i < 11; i++) {
+        for (let i = 0; i < numIterations + 1; i++) {
             evictFromCache(filepath);
             releaseMemory();
 
@@ -153,8 +155,8 @@ async function main() {
         const ext = path.extname(filename).toLowerCase();
 
         if (!savingFailed) {
-            console.log(`  Benchmarking Saving (11 iterations)...`);
-            for (let i = 0; i < 11; i++) {
+            console.log(`  Benchmarking Saving (${numIterations + 1} iterations)...`);
+            for (let i = 0; i < numIterations + 1; i++) {
                 releaseMemory();
                 await new Promise(resolve => setTimeout(resolve, 1000));
 

@@ -113,7 +113,7 @@ To ensure absolute cross-language parity and stability under stress, the benchma
 Be sure to run `python3 orchestrate.py build` before launching tests.
 
 Before benchmark timings are considered valid, these scripts perform the following rigorous sequence:
-1. **Unified Testing (`unified_tests.py`)**: Dynamically discovers every tractography file in the testing directory and uses each file as an implicit "gold standard". It invokes the native loaders and savers of all 4 tracks to perform a full load-and-save round-trip, comparing each output byte-by-byte in Python to validate offsets, 3D coordinates, and metadata perfectly match the original.
+1. **Unified Testing (`integrity_tests.py`)**: Dynamically discovers every tractography file in the testing directory and uses each file as an implicit "gold standard". It invokes the native loaders and savers of all 4 tracks to perform a full load-and-save round-trip, comparing each output byte-by-byte in Python to validate offsets, 3D coordinates, and metadata perfectly match the original.
 2. **Relay Testing (`relay_tests.py`)**: Cascades the output of one language into the input of the next (e.g., Python -> Rust -> C++ -> JavaScript) to mathematically prove cumulative interoperability and ensure zero metadata drift during conversions.
 3. **Extreme Edge-Case Testing (`extreme_tests.py`)**: Synthetically generates edge-case datasets (e.g., 0-vertex empty files, `NaN`/`Inf` injection, mid-file truncations, dictionary stress, and 1GB throughput equivalence checks) to ensure absolute stability and scale without fragmentation or panics.
 
@@ -127,7 +127,7 @@ Any failure in any track instantly aborts the test. Currently, **all 4 languages
 trx-nature-2026-benchmark/
 ├── README.md                 # Scientific context, setup, and language guide
 ├── orchestrate.py            # Master Python controller for building, running, and reporting
-├── unified_tests.py          # Unified isolated integrity tests
+├── integrity_tests.py        # Unified isolated integrity tests
 ├── relay_tests.py            # Relay cascading interoperability tests
 ├── extreme_tests.py          # Extreme synthetic edge-case and scaling tests
 ├── results/                  # Consolidated benchmark results

@@ -36,6 +36,8 @@ def test_language_relay():
 
         for lang in perm:
             out_file = f"test_data/relay_tmp_{lang}.trx"
+            if os.path.exists(out_file):
+                os.remove(out_file)
             cmd = get_runner(lang) + [current_input, out_file]
             ext_in = os.path.splitext(current_input)[1].lower()
             if ext_in in [".tck", ".vtk"]:
@@ -47,11 +49,13 @@ def test_language_relay():
         if np.allclose(t_orig.streamlines._data, t_final.streamlines._data, atol=1e-3):
             print(f"[PASSED] Combination {' -> '.join(perm)}")
         else:
-            print(f"[FAILED] Combination {' -> '.join(perm)}: Coordinates drifted!")
+            print(
+                f"[FAILED] Combination {' -> '.join(perm)}: Coordinates drifted!")
             failed += 1
 
     if failed == 0:
-        print("\n[SUCCESS] All 24 language relay permutations passed without coordinate drift!")
+        print(
+            "\n[SUCCESS] All 24 language relay permutations passed without coordinate drift!")
     else:
         print(f"\n[ERROR] {failed}/24 permutations failed.")
 
@@ -84,7 +88,8 @@ def test_format_relay():
 
     # Convert TCK -> TRX (via Rust)
     print("TCK -> TRX (via Rust)")
-    run_cmd(["test_data/rust/target/release/test_rust", out_tck, out_trx, "--ref", "test_data/fa.nii"])
+    run_cmd(["test_data/rust/target/release/test_rust",
+            out_tck, out_trx, "--ref", "test_data/fa.nii"])
 
     # Validate output in RASMM space
     t_orig = load_trx(gs_file)
@@ -97,7 +102,8 @@ def test_format_relay():
         print("[PASSED] Format Relay: RASMM coordinates maintained across formats!")
     else:
         max_drift = np.max(np.abs(orig_rasmm - final_rasmm))
-        print(f"[FAILED] Format Relay: Coordinates drifted by {max_drift:.5f} mm!")
+        print(
+            f"[FAILED] Format Relay: Coordinates drifted by {max_drift:.5f} mm!")
 
 
 def test_precision_relay():
@@ -125,8 +131,10 @@ save(t, '{out_f16}')
     run_cmd(["python3", script_f16])
 
     t_f16 = load_trx(out_f16)
-    max_diff = np.max(np.abs(t_orig.streamlines._data.astype(np.float32) - t_f16.streamlines._data.astype(np.float32)))
-    print(f"[PASSED] Precision Relay: Downcasting f32->f16 -> Max coordinate drift: {max_diff:.5f} mm")
+    max_diff = np.max(np.abs(t_orig.streamlines._data.astype(
+        np.float32) - t_f16.streamlines._data.astype(np.float32)))
+    print(
+        f"[PASSED] Precision Relay: Downcasting f32->f16 -> Max coordinate drift: {max_diff:.5f} mm")
 
 
 def test_metadata_relay():
@@ -155,9 +163,11 @@ def test_metadata_relay():
     orig_keys = set(t_orig.header.keys())
     final_keys = set(t_final.header.keys())
     if orig_keys == final_keys:
-        print("[PASSED] Metadata Relay: All header keys preserved across Python, Rust, C++, and JS!")
+        print(
+            "[PASSED] Metadata Relay: All header keys preserved across Python, Rust, C++, and JS!")
     else:
-        print(f"[FAILED] Metadata Relay: Keys drifted! Orig: {orig_keys}, Final: {final_keys}")
+        print(
+            f"[FAILED] Metadata Relay: Keys drifted! Orig: {orig_keys}, Final: {final_keys}")
 
 
 if __name__ == "__main__":

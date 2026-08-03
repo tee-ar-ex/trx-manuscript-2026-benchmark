@@ -58,6 +58,8 @@ def main():
         "results")
     os.makedirs(results_dir, exist_ok=True)
 
+    num_iterations = int(os.environ.get("TRX_BENCHMARK_ITERATIONS", 10))
+
     tmp_save_dir = os.path.join(results_dir, "tmp_benchmark_saving")
     os.makedirs(tmp_save_dir, exist_ok=True)
 
@@ -87,7 +89,7 @@ def main():
         obj = None
         loading_failed = False
 
-        for i in range(11):
+        for i in range(num_iterations + 1):
             evict_from_cache(filepath)
             release_memory()
 
@@ -141,7 +143,7 @@ def main():
         save_times = []
         saving_failed = False
 
-        for i in range(11):
+        for i in range(num_iterations + 1):
             release_memory()
             save_path = os.path.join(tmp_save_dir, f"tmp_save_{i}{ext}")
 

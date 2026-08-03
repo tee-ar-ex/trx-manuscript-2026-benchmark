@@ -221,12 +221,12 @@ def test_scalability():
             else:
                 ratio = ta / tb
             ratios[f"{a}/{b}"] = ratio
-            
+
             # Python's memory-mapped writes are natively much faster due to OS page cache.
             # Relax the bound if Python is involved.
             min_ratio = 0.25
             max_ratio = 4.0
-            
+
             if not (min_ratio <= ratio <= max_ratio):
                 violations.append((a, b, ratio))
 

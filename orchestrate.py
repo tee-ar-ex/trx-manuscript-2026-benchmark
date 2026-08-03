@@ -23,6 +23,12 @@ FILENAMES = [
 
 LANGUAGES = ["python", "rust", "cpp", "javascript"]
 
+# Control the number of iterations for all benchmarks
+# (e.g., set to 1 for quick testing, 10 for thorough benchmarking)
+NUM_ITERATIONS = 10
+os.environ["TRX_BENCHMARK_ITERATIONS"] = str(NUM_ITERATIONS)
+
+
 
 def print_banner(msg):
     print("=" * 60)
@@ -33,7 +39,8 @@ def print_banner(msg):
 def check_env():
     data_dir = os.environ.get("TRX_BENCHMARK_DATA_DIR")
     if not data_dir:
-        default_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "trx_benchmark_04_2026"))
+        default_dir = os.path.abspath(os.path.join(
+            os.path.dirname(__file__), "..", "trx_benchmark_04_2026"))
         if os.path.isdir(default_dir):
             print(f"[INFO] Found default benchmark dataset at {default_dir}")
             os.environ["TRX_BENCHMARK_DATA_DIR"] = default_dir
@@ -73,7 +80,9 @@ def build_rust():
             env["PATH"] = f"{cargo_bin}:{env.get('PATH', '')}"
         subprocess.run(["cargo", "build", "--release"],
                        cwd="rust", env=env, check=True)
-        print("[SUCCESS] Rust runner compiled.")
+        subprocess.run(["cargo", "build", "--release"],
+                       cwd="test_data/rust", env=env, check=True)
+        print("[SUCCESS] Rust runners compiled.")
     except Exception as e:
         print(f"[ERROR] Rust runner compilation failed: {e}", file=sys.stderr)
 
@@ -85,7 +94,17 @@ def build_cpp():
         subprocess.run(["cmake", "-DCMAKE_BUILD_TYPE=Release",
                        ".."], cwd="cpp/build", check=True)
         subprocess.run(["make", "-j"], cwd="cpp/build", check=True)
-        print("[SUCCESS] C++ runner compiled.")
+
+        os.makedirs("test_data/cpp/build", exist_ok=True)
+        subprocess.run(["cmake", "-DCMAKE_BUILD_TYPE=Release",
+                       ".."], cwd="test_data/cpp/build", check=True)
+        subprocess.run(["make", "-j"], cwd="test_data/cpp/build", check=True)
+        import shutil
+        if os.path.exists("test_data/cpp/build/test_cpp"):
+            shutil.copy2("test_data/cpp/build/test_cpp",
+                         "test_data/cpp/test_cpp")
+
+        print("[SUCCESS] C++ runners compiled.")
     except Exception as e:
         print(
             f"[ERROR] C++ runner compilation failed (ensure cpp directory exists and is implemented): {e}",
@@ -119,7 +138,8 @@ def run_rust():
             "release",
             "trx-nature-2026-benchmark-rust")
         if not os.path.isfile(binary_path):
-            subprocess.run(["cargo", "run", "--release", "--manifest-path", "rust/Cargo.toml"], check=True)
+            subprocess.run(["cargo", "run", "--release",
+                           "--manifest-path", "rust/Cargo.toml"], check=True)
         else:
             subprocess.run([f"./{binary_path}"], check=True)
         print("[SUCCESS] Rust benchmarks completed.")
@@ -250,25 +270,35 @@ def generate_report(out_dir):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Multi-Language Tractography Benchmark Orchestrator")
-    parser.add_argument("--build", action="store_true", help="Compile and set up runners")
-    parser.add_argument("--run", action="store_true", help="Execute the benchmark runners")
-    parser.add_argument("--clean", action="store_true", help="Clean build artifacts and temporary files")
-    parser.add_argument("--summary", action="store_true", help="Generate the markdown summary table")
-    parser.add_argument("--all", action="store_true", help="Execute build, run, and summary phases")
-    parser.add_argument("-f", "--force_overwrite", action="store_true", help="Force overwrite of existing benchmark outputs")
-    parser.add_argument("--out_dir", default="results", help="Directory to load/save JSON and summary output")
-    parser.add_argument("--trx_benchmark_data_dir", help="Override the dataset input directory path")
-    
+    parser = argparse.ArgumentParser(
+        description="Multi-Language Tractography Benchmark Orchestrator")
+    parser.add_argument("--build", action="store_true",
+                        help="Compile and set up runners")
+    parser.add_argument("--run", action="store_true",
+                        help="Execute the benchmark runners")
+    parser.add_argument("--clean", action="store_true",
+                        help="Clean build artifacts and temporary files")
+    parser.add_argument("--summary", action="store_true",
+                        help="Generate the markdown summary table")
+    parser.add_argument("--all", action="store_true",
+                        help="Execute build, run, and summary phases")
+    parser.add_argument("-f", "--force_overwrite", action="store_true",
+                        help="Force overwrite of existing benchmark outputs")
+    parser.add_argument("--out_dir", default="results",
+                        help="Directory to load/save JSON and summary output")
+    parser.add_argument("--trx_benchmark_data_dir",
+                        help="Override the dataset input directory path")
+
     args = parser.parse_args()
 
     # Apply environment overrides
     if args.trx_benchmark_data_dir:
-        os.environ["TRX_BENCHMARK_DATA_DIR"] = os.path.abspath(args.trx_benchmark_data_dir)
-        
+        os.environ["TRX_BENCHMARK_DATA_DIR"] = os.path.abspath(
+            args.trx_benchmark_data_dir)
+
     if args.force_overwrite:
         os.environ["TRX_BENCHMARK_FORCE_OVERWRITE"] = "1"
-        
+
     os.environ["TRX_BENCHMARK_OUT_DIR"] = os.path.abspath(args.out_dir)
 
     check_env()
@@ -286,7 +316,7 @@ def main():
         shutil.rmtree("test_data/cpp/CMakeFiles", ignore_errors=True)
         shutil.rmtree("test_data/cpp/trx-cpp-build", ignore_errors=True)
         shutil.rmtree("test_data/cpp/_deps", ignore_errors=True)
-        
+
         for f in glob.glob("test_data/tmp*") + glob.glob("test_data/relay*"):
             try:
                 os.remove(f)
@@ -299,7 +329,7 @@ def main():
                 pass
 
         print("[SUCCESS] Cleanup complete.")
-        
+
         # If ONLY clean was passed, exit early
         if not (args.build or args.run or args.summary or args.all):
             return

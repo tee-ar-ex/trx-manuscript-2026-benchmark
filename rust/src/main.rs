@@ -68,6 +68,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut loading = HashMap::new();
     let mut saving = HashMap::new();
 
+    let num_iterations: usize = env::var("TRX_BENCHMARK_ITERATIONS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(10);
+
     // Create a local tmp directory for saving benchmark
     let tmp_dir = PathBuf::from("tmp_benchmark_saving");
     if !tmp_dir.exists() {
@@ -95,9 +100,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
 
         // --- Benchmarking Loading ---
-        println!("Benchmarking Loading for {} (11 iterations)...", filename);
+        println!("Benchmarking Loading for {} ({} iterations)...", filename, num_iterations + 1);
         let mut load_times = Vec::new();
-        for i in 0..11 {
+        for i in 0..(num_iterations + 1) {
             // Evict file from cache
             if let Err(e) = utils::evict_from_cache(&path) {
                 println!("      [WARN] Cache eviction failed for {}: {}", filename, e);
@@ -180,9 +185,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             ..Default::default()
         };
 
-        println!("Benchmarking Saving for {} (11 iterations)...", filename);
+        println!("Benchmarking Saving for {} ({} iterations)...", filename, num_iterations + 1);
         let mut save_times = Vec::new();
-        for i in 0..11 {
+        for i in 0..(num_iterations + 1) {
             std::thread::sleep(std::time::Duration::from_secs(1));
 
             let save_path = tmp_dir.join(format!("tmp_save_{}{}", i, ext));

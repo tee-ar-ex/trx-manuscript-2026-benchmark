@@ -49,11 +49,13 @@ def load_as_arrays(filepath):
         from vtkmodules.util import numpy_support
         polydata = load_polydata(filepath)
         points_vtk = polydata.GetPoints().GetData()
-        pts = np.array(numpy_support.vtk_to_numpy(points_vtk), dtype=np.float32)
+        pts = np.array(numpy_support.vtk_to_numpy(
+            points_vtk), dtype=np.float32)
         lines = polydata.GetLines()
         offsets_vtk = lines.GetOffsetsArray()
         if offsets_vtk is not None:
-            offsets = np.array(numpy_support.vtk_to_numpy(offsets_vtk), dtype=np.int64)
+            offsets = np.array(numpy_support.vtk_to_numpy(
+                offsets_vtk), dtype=np.int64)
         else:
             # Fallback: iterate cells
             lines.InitTraversal()
@@ -83,7 +85,8 @@ def run_tests_for_file(input_path, output_ext):
     print("======================================")
 
     ext_in = os.path.splitext(input_path)[1].lower()
-    needs_ref = (ext_in in [".tck", ".vtk"]) and (output_ext in [".trx", ".trk"])
+    needs_ref = (ext_in in [".tck", ".vtk"]) and (
+        output_ext in [".trx", ".trk"])
     ref_args = ["--ref", os.path.join(TEST_DIR, "fa.nii")] if needs_ref else []
 
     runners = {
@@ -113,6 +116,11 @@ def run_tests_for_file(input_path, output_ext):
     }
 
     results = {}
+    for lang in runners:
+        out_f = os.path.join(TEST_DIR, f"tmp_{lang}{output_ext}")
+        if os.path.exists(out_f):
+            os.remove(out_f)
+
     for lang, cmd in runners.items():
         print(f"Running {lang.upper()}...")
         try:
@@ -242,12 +250,14 @@ def compare_legacy(ref_path, test_path, name):
     ref_nb = len(ref_offsets) - 1
     test_nb = len(test_offsets) - 1
     if ref_nb != test_nb:
-        print(f"  [FAILED] Streamline count mismatch in {name}: {ref_nb} != {test_nb}")
+        print(
+            f"  [FAILED] Streamline count mismatch in {name}: {ref_nb} != {test_nb}")
         return False
 
     # Check total point count
     if len(ref_pts) != len(test_pts):
-        print(f"  [FAILED] Total point count mismatch in {name}: {len(ref_pts)} != {len(test_pts)}")
+        print(
+            f"  [FAILED] Total point count mismatch in {name}: {len(ref_pts)} != {len(test_pts)}")
         return False
 
     # Check offsets
@@ -258,7 +268,8 @@ def compare_legacy(ref_path, test_path, name):
     # Check coordinates
     if not np.allclose(ref_pts, test_pts, atol=1e-4):
         max_diff = np.max(np.abs(ref_pts - test_pts))
-        print(f"  [FAILED] Coordinates mismatch in {name} (max diff: {max_diff:.6f})")
+        print(
+            f"  [FAILED] Coordinates mismatch in {name} (max diff: {max_diff:.6f})")
         return False
 
     print(f"  [PASSED] {name} identical to gold standard.")
@@ -306,7 +317,8 @@ if __name__ == "__main__":
 
             for lang in ["python", "js", "cpp", "rust"]:
                 if not runner_results.get(lang, False):
-                    print(f"\n  [SKIPPED] {lang.upper()} ({ext}) — runner failed")
+                    print(
+                        f"\n  [SKIPPED] {lang.upper()} ({ext}) — runner failed")
                     all_passed = False
                     continue
                 p = os.path.join(TEST_DIR, f"tmp_{lang}{ext}")
