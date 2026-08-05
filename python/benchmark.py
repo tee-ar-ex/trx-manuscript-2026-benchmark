@@ -90,8 +90,11 @@ def main():
         loading_failed = False
 
         for i in range(num_iterations + 1):
-            evict_from_cache(filepath)
+            if obj is not None:
+                del obj
+                obj = None
             release_memory()
+            evict_from_cache(filepath)
 
             t0 = time.time()
             try:

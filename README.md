@@ -101,9 +101,91 @@ To ensure scientific rigor and parity across all languages, the benchmarking mod
 * **Warm Runs (Iterations 1-10)**: Measured sequentially. Timed and included in the final mean and standard deviation calculations.
 
 
-3. **Programmatic Cache Eviction**: To prevent memory page caching from skewing results, runners invalidate the file system page cache for the target file before every iteration using the POSIX system call `posix_fadvise(..., POSIX_FADV_DONTNEED)`.
+3. **Programmatic Cache Eviction**: To prevent memory page caching from skewing results, runners invalidate the global file system page cache before **every** iteration using a system call to drop caches (`sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches'`). See the [Cache Eviction Protocol](#cache-eviction-protocol) section below for a full explanation.
 4. **Programmatic Heap Cleaning**: Memory is explicitly freed and heap spaces are trimmed (e.g., via `malloc_trim` or garbage collection calls) between files and iterations to prevent memory accumulation and thrashing from affecting consecutive runs.
 5. **Integrity Parity Checks**: Every single file loader performs dynamic integrity checking. The first successfully loaded file establishes the baseline streamline and total point count. All subsequent loaders and formats must perfectly match this baseline configuration, allowing the suite to automatically scale from small validation datasets to massive production volumes (e.g., **5,979,093** streamlines). Any mismatch invalidates the timing and records an error.
+
+---
+
+## 🔒 Cache Eviction Protocol
+
+### Why It Is Mandatory
+
+The Linux kernel maintains a **page cache** — a region of RAM that stores recently accessed
+disk blocks. When a file is read, the kernel caches its pages in RAM. Subsequent reads to the
+same file are served from RAM at ~40 GB/s rather than from storage at ~4 GB/s — a ~10×
+difference. Without cache eviction between benchmark iterations, results measure **RAM
+bandwidth**, not the library's true I/O performance.
+
+### The Mechanism
+
+All runners execute the following shell command before starting the timer:
+
+```bash
+sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches'
+```
+
+This instructs the kernel to **release all cached pages across the entire system** from the page
+cache. The next `read()`, `pread()`, or `mmap()` will fetch data from storage, reliably
+simulating a cold-start scenario.
+
+**Key properties:**
+- **Requires root (`sudo`) privileges.**
+- Forces a complete flush of the global system cache.
+- Can cause temporary performance degradation for other background applications.
+
+### Setting up Passwordless Sudo (Option 2)
+
+Because the cache eviction requires `sudo`, running the benchmark without root privileges will fail or prompt for a password. It is highly recommended to configure your system to allow your user to drop caches without a password prompt. 
+
+Run `sudo visudo` and append the following line to the end of the file (replace `YOUR_USERNAME` with your actual Linux user):
+```text
+YOUR_USERNAME ALL = NOPASSWD: /bin/sh -c sync; echo 3 > /proc/sys/vm/drop_caches
+```
+This allows the benchmarking scripts to run securely under your normal user account while seamlessly dropping the caches.
+
+### Per-Language Implementations
+
+| Language | Implementation | Location |
+|----------|---------------|----------|
+| **Python** | `os.system("sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches' 2>/dev/null")` | `python/utils.py` |
+| **Rust** | `Command::new("sh")...` | `rust/src/utils.rs` |
+| **C++** | `system("sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches' 2>/dev/null")` | `cpp/utils.cpp` |
+| **JavaScript** | `execSync("sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches' 2>/dev/null")` | `js/utils.js` |
+
+---
+
+## 🚀 Recent Optimizations (August 2026)
+
+### 1. JavaScript: Async Timing Fix (`benchmark_simple`)
+
+A prior version of `benchmark_simple/benchmark.mjs` reported spuriously fast JS load times
+(~60,000 MB/s) because the `await loadData(input_file)` call resolved as soon as the stream
+was *opened*, not when all bytes had been delivered. After fixing the `async`/`await` pattern
+to correctly bracket the complete I/O operation, JS load throughput is accurately measured at
+~988 MB/s — consistent with NVMe read speeds. The same fix was applied to `js/utils.js`
+inside `trx-nature-2026-benchmark` to ensure `saveTRX` does not resolve before the file
+handle is fully flushed and closed.
+
+### 2. C++: O(1) ZIP Directory Lookup (`trx-cpp`)
+
+The prior C++ implementation called `find_uncompressed_zip_entry_offset()` once per array,
+causing O(k × file_size) complexity for a dataset with `k` metadata arrays. On a 6 GB archive
+with 50 metadata arrays, this scanned ~300 GB of data before loading a single byte of real
+tractography data.
+
+A new `build_zip_offset_map()` function performs a **single linear scan** over the archive
+using `mmap` and stores every entry's offset into a `std::unordered_map<string, pair<size_t,
+size_t>>`. Subsequent lookups are O(1). Complexity dropped from O(k × file_size) to
+O(file_size) + O(k). The public API is unchanged.
+
+### 3. Shared Cache Eviction Helper (`benchmark_simple`)
+
+A dedicated `benchmark_simple/cache_evict.py` module was created, exposing a single
+`evict(path)` function. Both `benchmark.py` and `benchmark.mjs` now import and call it before
+starting their timers. `run_all.sh` also calls the shell-level eviction between runners as
+belt-and-suspenders protection. Previously, Python had no per-run eviction and measured
+warm-cache results.
 
 ---
 
@@ -178,7 +260,7 @@ The Python track utilizes the official scientific libraries in the neuroimaging 
 * **Memory Management**:
 Triggers explicit Python garbage collection (`gc.collect()`) followed by a ctypes call to `libc.so.6`'s `malloc_trim(0)`. This forces the glibc memory allocator to release freed heap memory back to the operating system, preventing CPython memory fragmentation.
 * **Cache Eviction**:
-Uses Python's native `os.posix_fadvise(fd, 0, size, os.POSIX_FADV_DONTNEED)` after opening file descriptors to flush OS read caches.
+Uses `os.system` to execute `sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches'` to globally flush OS read caches.
 * **Write Operations**:
 Measures save operations for all formats (TRX, TRK, TCK, VTK).
 
@@ -195,9 +277,9 @@ The Rust track leverages the safety and raw performance of native compiled binar
 * **Optimization**:
 Built using Cargo release optimization flags (`cargo build --release`).
 * **Memory Management**:
-Relies on Rust's compile-time RAII (Resource Acquisition Is Initialization). Objects are dropped immediately when they go out of scope. We enforce thread sleeps (`std::thread::sleep`) between iterations to allow the kernel allocator to settle.
+Relies on Rust's compile-time RAII (Resource Acquisition Is Initialization). Objects are dropped immediately when they go out of scope.
 * **Cache Eviction**:
-Uses native C bindings via the `libc` crate: `libc::posix_fadvise(fd, 0, 0, libc::POSIX_FADV_DONTNEED)`.
+Uses system commands via `std::process::Command` to globally flush OS read caches with `sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches'`.
 * **Write Capability**:
 Supports writing all formats (TRX, TRK, TCK, VTK). Following the 2026 centralization refactor, legacy IO parsing and writing is natively exposed via the `trx_rs::legacy_io` module rather than existing as duplicated code inside the benchmark runner.
 
@@ -220,7 +302,7 @@ The `trx-cpp` library now features a `trx::legacy` namespace containing highly e
 * **Memory Management**:
 Utilizes smart pointers and custom scopes for RAII. Calls `malloc_trim(0)` between runs to release memory pages.
 * **Cache Eviction**:
-Uses standard `<fcntl.h>` system calls to get a raw file descriptor and call `posix_fadvise(fd, 0, 0, POSIX_FADV_DONTNEED)`.
+Uses `system()` to execute `sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches'` to globally flush OS read caches.
 * **Write Capability**:
 Supports writing all formats (TRX, TRK, TCK, VTK). Highly optimized C++ encoders for TCK, TRK, and VTK are implemented natively in the `trx::legacy` module inside `trx-cpp`, replacing the legacy `cpp/utils.cpp` script.
 ### 🌐 JavaScript (Node.js)
@@ -235,11 +317,12 @@ The JavaScript track evaluates the performance of the V8 JavaScript engine runni
 
 
 * **Technical Workarounds & Engine Bypasses**:
-1. **Node.js 2 GiB File Limit**: Node's default `fs.readFileSync` throws a `RangeError [ERR_FS_FILE_TOO_LARGE]` when attempting to load files exceeding 2 GiB. We implemented a custom chunked binary reader in `js/utils.js` using `fs.openSync` and `fs.readSync` in a loop, pre-allocating a single large `ArrayBuffer` to bypass this V8 boundary.
-2. **Shared ArrayBuffer Corruption**: Libraries like `fflate.unzipSync` decompress files into a shared backing `ArrayBuffer` to avoid memory copies. Instantiating typed arrays natively reads from the start of the shared buffer instead of the decompression slice, causing coordinate/offset corruption. We resolved this by implementing a `getAlignedArray` helper that safely maps bounds using `data.byteOffset` and `data.byteLength`, while enforcing strict byte-alignment boundaries.
+1. **Node.js 2 GiB File Limit**: Node's default `fs.readFileSync` throws a `RangeError [ERR_FS_FILE_TOO_LARGE]` when attempting to load files exceeding 2 GiB. The `readTRX` function in `streamlineIO.mjs` (and the helper in `js/utils.js`) implements a custom chunked binary reader using `fs.openSync` + `fs.readSync` in a 512 MiB loop, pre-allocating a single large `ArrayBuffer` to bypass this V8 boundary.
+2. **Typed Array Alignment (`getAlignedArray`)**: After reading raw bytes via `pread()` or decompressing via `fflate.inflateSync`, the raw `ArrayBuffer` may start at an unaligned byte offset. Wrapping it directly in `new Float32Array(buffer)` would misalign element boundaries, causing silent coordinate corruption. A `getAlignedArray(constructor, dataArray)` helper safely creates a typed view using `dataArray.byteOffset` and `dataArray.byteLength`, and falls back to a copy via `slice()` only when the alignment constraint cannot be satisfied in-place. This was originally motivated by the shared-buffer behavior of `fflate.unzipSync`; it remains necessary with the current direct-offset reader for the same reason.
 3. **TRK Memory Duplication Wall**: Reading legacy `.trk` files historically sliced the underlying header buffer to create the payload array (`buffer.slice()`). On multi-gigabyte datasets, this instantly violated V8's heap constraints by duplicating the entire file in RAM. We patched `readTRK` to map directly onto the existing buffer using `new Int32Array(buffer, offset)`.
-4.  **V8 Heap Memory Configuration**: Large datasets cause Node.js processes to exceed the default heap limit (1.4 GB) and crash with out-of-memory (OOM) errors. The benchmark runner must be invoked with `--max-old-space-size=16384` to expand the heap limit to 16 GB.
-5.  **Garbage Collection**: Node is run with the `--expose-gc` flag. Programmatic memory reclamation is triggered before each run using `global.gc()`.
+4. **V8 Heap Memory Configuration**: Large datasets cause Node.js processes to exceed the default heap limit (1.4 GB) and crash with out-of-memory (OOM) errors. The benchmark runner must be invoked with `--max-old-space-size=16384` to expand the heap limit to 16 GB.
+5. **Garbage Collection**: Node is run with the `--expose-gc` flag. Programmatic memory reclamation is triggered before each run using `global.gc()`.
+6. **Async Timing Correctness**: `readTRX` and `saveTRX` are both `async` functions. `saveTRX` wraps its `WriteStream` in a `new Promise((resolve, reject) => { writeStream.on('finish', resolve); ... writeStream.end(); })` so that the `await` does not resolve until the OS file handle is fully flushed and closed. All benchmark timers (`performance.now()`) bracket the complete I/O operation, not just the stream open.
 *   **Write Capability**:
 Supports writing all formats (TRX, TRK, TCK, VTK) via the `streamlineIO.mjs` module inside the `trx-javascript` core library. The legacy format parsers and generators previously housed in `js/utils.js` were centralized to ensure perfect inverse-affine coordinate parity for formats like TRK.
 ---

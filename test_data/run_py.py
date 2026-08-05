@@ -12,7 +12,7 @@ if __name__ == "__main__":
     if ext == '.trx':
         from trx.trx_file_memmap import load, save
         trx = load(input_file)
-        trx.to_memory()
+        trx = trx.to_memory()
         trx.streamlines._data = trx.streamlines._data.astype(np.float32)
         save(trx, output_file)
     elif ext in ('.trk', '.tck'):

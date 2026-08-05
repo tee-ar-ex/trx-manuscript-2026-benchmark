@@ -1,17 +1,19 @@
-use std::fs::File;
-use std::os::unix::io::AsRawFd;
 use std::path::Path;
 
-/// Evicts a file from the OS page cache using posix_fadvise.
-pub fn evict_from_cache<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
-    let file = File::open(path)?;
-    let fd = file.as_raw_fd();
-    let len = file.metadata()?.len();
+use std::process::Command;
 
-    let ret = unsafe { libc::posix_fadvise(fd, 0, len as libc::off_t, libc::POSIX_FADV_DONTNEED) };
+/// Evicts a file from the OS page cache using system drop caches.
+pub fn evict_from_cache<P: AsRef<Path>>(_path: P) -> std::io::Result<()> {
+    let status = Command::new("sh")
+        .arg("-c")
+        .arg("sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches' 2>/dev/null")
+        .status()?;
 
-    if ret != 0 {
-        return Err(std::io::Error::from_raw_os_error(ret));
+    if !status.success() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "Cache eviction failed",
+        ));
     }
 
     Ok(())

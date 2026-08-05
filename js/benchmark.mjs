@@ -85,10 +85,8 @@ async function main() {
         let loadingFailed = false;
 
         for (let i = 0; i < numIterations + 1; i++) {
-            evictFromCache(filepath);
             releaseMemory();
-
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            evictFromCache(filepath);
 
             const t0 = performance.now();
             try {
@@ -158,13 +156,12 @@ async function main() {
             console.log(`  Benchmarking Saving (${numIterations + 1} iterations)...`);
             for (let i = 0; i < numIterations + 1; i++) {
                 releaseMemory();
-                await new Promise(resolve => setTimeout(resolve, 1000));
 
                 const savePath = path.join(tmpSaveDir, `tmp_save_${i}${ext}`);
                 const t0 = performance.now();
                 try {
                     if (ext === '.trx') {
-                        saveTRX(savePath, obj, filename);
+                        await saveTRX(savePath, obj, filename);
                     } else if (ext === '.trk') {
                         saveTRK(savePath, obj, filename);
                     } else if (ext === '.tck') {

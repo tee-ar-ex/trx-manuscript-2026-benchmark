@@ -47,7 +47,7 @@ async function main() {
     let obj = await loadData(input_file);
 
     if (ext === '.trx') {
-        saveTRX(output_file, obj, path.basename(input_file), refHeader);
+        await saveTRX(output_file, obj, path.basename(input_file), refHeader);
     } else if (ext === '.trk') {
         saveTRK(output_file, obj, path.basename(input_file), refHeader);
     } else if (ext === '.tck') {

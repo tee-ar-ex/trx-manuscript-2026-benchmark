@@ -11,9 +11,7 @@ import { mat4, vec3 } from '../../trx-javascript/node_modules/gl-matrix/esm/inde
  */
 export function evictFromCache(filename) {
     try {
-        const stats = fs.statSync(filename);
-        const size = stats.size;
-        execSync(`python3 -c "import os; fd = os.open('${filename}', os.O_RDONLY); os.posix_fadvise(fd, 0, ${size}, 4); os.close(fd)"`);
+        execSync(`sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches' 2>/dev/null`);
     } catch (e) {
         console.error(`      [WARN] Cache eviction failed for ${filename}: ${e.message}`);
     }

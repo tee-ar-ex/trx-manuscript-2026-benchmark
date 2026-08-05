@@ -107,7 +107,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Err(e) = utils::evict_from_cache(&path) {
                 println!("      [WARN] Cache eviction failed for {}: {}", filename, e);
             }
-            std::thread::sleep(std::time::Duration::from_secs(1));
 
             let t0 = Instant::now();
             let tractogram = match ext {
@@ -188,8 +187,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("Benchmarking Saving for {} ({} iterations)...", filename, num_iterations + 1);
         let mut save_times = Vec::new();
         for i in 0..(num_iterations + 1) {
-            std::thread::sleep(std::time::Duration::from_secs(1));
-
             let save_path = tmp_dir.join(format!("tmp_save_{}{}", i, ext));
 
             let t0 = Instant::now();
