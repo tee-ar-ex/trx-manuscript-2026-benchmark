@@ -101,27 +101,103 @@ To ensure scientific rigor and parity across all languages, the benchmarking mod
 * **Warm Runs (Iterations 1-10)**: Measured sequentially. Timed and included in the final mean and standard deviation calculations.
 
 
-3. **Programmatic Cache Eviction**: To prevent memory page caching from skewing results, runners invalidate the file system page cache for the target file before every iteration using the POSIX system call `posix_fadvise(..., POSIX_FADV_DONTNEED)`.
+3. **Programmatic Cache Eviction**: To prevent memory page caching from skewing results, runners invalidate the global file system page cache before **every** iteration using a system call to drop caches (`sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches'`). See the [Cache Eviction Protocol](#cache-eviction-protocol) section below for a full explanation.
 4. **Programmatic Heap Cleaning**: Memory is explicitly freed and heap spaces are trimmed (e.g., via `malloc_trim` or garbage collection calls) between files and iterations to prevent memory accumulation and thrashing from affecting consecutive runs.
 5. **Integrity Parity Checks**: Every single file loader performs dynamic integrity checking. The first successfully loaded file establishes the baseline streamline and total point count. All subsequent loaders and formats must perfectly match this baseline configuration, allowing the suite to automatically scale from small validation datasets to massive production volumes (e.g., **5,979,093** streamlines). Any mismatch invalidates the timing and records an error.
 
 ---
 
+## 🔒 Cache Eviction Protocol
+
+### Why It Is Mandatory
+
+The Linux kernel maintains a **page cache** — a region of RAM that stores recently accessed
+disk blocks. When a file is read, the kernel caches its pages in RAM. Subsequent reads to the
+same file are served from RAM at ~40 GB/s rather than from storage at ~4 GB/s — a ~10×
+difference. Without cache eviction between benchmark iterations, results measure **RAM
+bandwidth**, not the library's true I/O performance.
+
+### The Mechanism
+
+All runners execute the following shell command before starting the timer:
+
+```bash
+sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches'
+```
+
+This instructs the kernel to **release all cached pages across the entire system** from the page
+cache. The next `read()`, `pread()`, or `mmap()` will fetch data from storage, reliably
+simulating a cold-start scenario.
+
+**Key properties:**
+- **Requires root (`sudo`) privileges.**
+- Forces a complete flush of the global system cache.
+- Can cause temporary performance degradation for other background applications.
+
+### Setting up Passwordless Sudo (Option 2)
+
+Because the cache eviction requires `sudo`, running the benchmark without root privileges will fail or prompt for a password. It is highly recommended to configure your system to allow your user to drop caches without a password prompt. 
+
+Run `sudo visudo` and append the following line to the end of the file (replace `YOUR_USERNAME` with your actual Linux user):
+```text
+YOUR_USERNAME ALL = NOPASSWD: /bin/sh -c sync; echo 3 > /proc/sys/vm/drop_caches
+```
+This allows the benchmarking scripts to run securely under your normal user account while seamlessly dropping the caches.
+
+### Per-Language Implementations
+
+| Language | Implementation | Location |
+|----------|---------------|----------|
+| **Python** | `os.system("sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches' 2>/dev/null")` | `python/utils.py` |
+| **Rust** | `Command::new("sh")...` | `rust/src/utils.rs` |
+| **C++** | `system("sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches' 2>/dev/null")` | `cpp/utils.cpp` |
+| **JavaScript** | `execSync("sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches' 2>/dev/null")` | `js/utils.js` |
+
+---
+
+## 🚀 Recent Optimizations (August 2026)
+
+### 1. JavaScript: Async Timing Fix (`benchmark_simple`)
+
+A prior version of `benchmark_simple/benchmark.mjs` reported spuriously fast JS load times
+(~60,000 MB/s) because the `await loadData(input_file)` call resolved as soon as the stream
+was *opened*, not when all bytes had been delivered. After fixing the `async`/`await` pattern
+to correctly bracket the complete I/O operation, JS load throughput is accurately measured at
+~988 MB/s — consistent with NVMe read speeds. The same fix was applied to `js/utils.js`
+inside `trx-nature-2026-benchmark` to ensure `saveTRX` does not resolve before the file
+handle is fully flushed and closed.
+
+### 2. C++: O(1) ZIP Directory Lookup (`trx-cpp`)
+
+The prior C++ implementation called `find_uncompressed_zip_entry_offset()` once per array,
+causing O(k × file_size) complexity for a dataset with `k` metadata arrays. On a 6 GB archive
+with 50 metadata arrays, this scanned ~300 GB of data before loading a single byte of real
+tractography data.
+
+A new `build_zip_offset_map()` function performs a **single linear scan** over the archive
+using `mmap` and stores every entry's offset into a `std::unordered_map<string, pair<size_t,
+size_t>>`. Subsequent lookups are O(1). Complexity dropped from O(k × file_size) to
+O(file_size) + O(k). The public API is unchanged.
+
+### 3. Shared Cache Eviction Helper (`benchmark_simple`)
+
+A dedicated `benchmark_simple/cache_evict.py` module was created, exposing a single
+`evict(path)` function. Both `benchmark.py` and `benchmark.mjs` now import and call it before
+starting their timers. `run_all.sh` also calls the shell-level eviction between runners as
+belt-and-suspenders protection. Previously, Python had no per-run eviction and measured
+warm-cache results.
+
+---
+
 ## 🧪 Validation & Integrity Testing
 
-To ensure absolute cross-language parity, a unified validation suite (`unified_test.py`) was implemented.
-Be sure to run `bash run_benchmarks.sh build` before launching tests.
+To ensure absolute cross-language parity and stability under stress, the benchmark relies on three distinct validation suites (`unified_tests.py`, `relay_tests.py`, and `extreme_tests.py`).
+Be sure to run `python3 orchestrate.py build` before launching tests.
 
-Before benchmark timings are considered valid, the validation script performs the following rigorous sequence:
-1. Use the predefined `gold_standard.trx` (from [Gold Standard IO Dataset](https://zenodo.org/records/7767654)) tractography 3D coordinates, affine transformations, per-vertex colors, and per-streamline coordinates.
-2. Invokes the native loaders and savers of all 4 tracks (Python, JS, C++, and Rust) to independently round-trip the file into temporary archives (`tmp_*.trx`).
-3. Compares each resulting archive byte-by-byte in Python using `numpy` and `trx-python`.
-4. Validates that **all** output match perfectly:
-   - Offsets arrays (checking exact length, shape, data, and memory dtype)
-   - 3D Position coordinates
-   - Affine transformations (`VOXEL_TO_RASMM` float matches via `np.allclose`)
-   - Header Dimensions
-   - Data-per-vertex (DPV) and Data-per-streamline (DPS) dynamic keys, payloads, and datatypes.
+Before benchmark timings are considered valid, these scripts perform the following rigorous sequence:
+1. **Unified Testing (`integrity_tests.py`)**: Dynamically discovers every tractography file in the testing directory and uses each file as an implicit "gold standard". It invokes the native loaders and savers of all 4 tracks to perform a full load-and-save round-trip, comparing each output byte-by-byte in Python to validate offsets, 3D coordinates, and metadata perfectly match the original.
+2. **Relay Testing (`relay_tests.py`)**: Cascades the output of one language into the input of the next (e.g., Python -> Rust -> C++ -> JavaScript) to mathematically prove cumulative interoperability and ensure zero metadata drift during conversions.
+3. **Extreme Edge-Case Testing (`extreme_tests.py`)**: Synthetically generates edge-case datasets (e.g., 0-vertex empty files, `NaN`/`Inf` injection, mid-file truncations, dictionary stress, and 1GB throughput equivalence checks) to ensure absolute stability and scale without fragmentation or panics.
 
 Any failure in any track instantly aborts the test. Currently, **all 4 languages pass this 100% integrity check.**
 
@@ -129,11 +205,13 @@ Any failure in any track instantly aborts the test. Currently, **all 4 languages
 
 ## 📂 Repository Structure
 
-```
+```text
 trx-nature-2026-benchmark/
 ├── README.md                 # Scientific context, setup, and language guide
 ├── orchestrate.py            # Master Python controller for building, running, and reporting
-├── run_benchmarks.sh         # Bash entry point setting the environment and invoking python
+├── integrity_tests.py        # Unified isolated integrity tests
+├── relay_tests.py            # Relay cascading interoperability tests
+├── extreme_tests.py          # Extreme synthetic edge-case and scaling tests
 ├── results/                  # Consolidated benchmark results
 │   ├── python_results.json
 │   ├── rust_results.json
@@ -182,7 +260,7 @@ The Python track utilizes the official scientific libraries in the neuroimaging 
 * **Memory Management**:
 Triggers explicit Python garbage collection (`gc.collect()`) followed by a ctypes call to `libc.so.6`'s `malloc_trim(0)`. This forces the glibc memory allocator to release freed heap memory back to the operating system, preventing CPython memory fragmentation.
 * **Cache Eviction**:
-Uses Python's native `os.posix_fadvise(fd, 0, size, os.POSIX_FADV_DONTNEED)` after opening file descriptors to flush OS read caches.
+Uses `os.system` to execute `sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches'` to globally flush OS read caches.
 * **Write Operations**:
 Measures save operations for all formats (TRX, TRK, TCK, VTK).
 
@@ -199,11 +277,11 @@ The Rust track leverages the safety and raw performance of native compiled binar
 * **Optimization**:
 Built using Cargo release optimization flags (`cargo build --release`).
 * **Memory Management**:
-Relies on Rust's compile-time RAII (Resource Acquisition Is Initialization). Objects are dropped immediately when they go out of scope. We enforce thread sleeps (`std::thread::sleep`) between iterations to allow the kernel allocator to settle.
+Relies on Rust's compile-time RAII (Resource Acquisition Is Initialization). Objects are dropped immediately when they go out of scope.
 * **Cache Eviction**:
-Uses native C bindings via the `libc` crate: `libc::posix_fadvise(fd, 0, 0, libc::POSIX_FADV_DONTNEED)`.
+Uses system commands via `std::process::Command` to globally flush OS read caches with `sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches'`.
 * **Write Capability**:
-Supports writing all formats (TRX, TRK, TCK, VTK). A custom, highly optimized TrackVis (.trk) reader and writer was implemented in `rust/src/utils.rs` to bypass the `trx-rs` library's strict loading checks and intentional omission of the TRK writer.
+Supports writing all formats (TRX, TRK, TCK, VTK). Following the 2026 centralization refactor, legacy IO parsing and writing is natively exposed via the `trx_rs::legacy_io` module rather than existing as duplicated code inside the benchmark runner.
 
 ### ⚡ C++
 
@@ -217,18 +295,16 @@ The C++ track represents the high-performance compiled baseline, built under str
 
 * **Optimization**:
 Compiled using CMake in `Release` mode with maximum optimizations (`-O3`).
-* **Custom Legacy Format Parsers**:
-To avoid the enormous overhead of standard mesh structures, a lightweight, highly optimized binary parser was implemented in `cpp/utils.cpp`.
-* *TCK/TRK/VTK*: Coordinates are counted by scanning binary data chunks directly from a file buffer rather than copying them into Eigen dynamic matrices, allowing high-performance parsing that serves as a baseline for the physics/geometry level.
+* **Legacy Format Parsers**:
+The `trx-cpp` library now features a `trx::legacy` namespace containing highly efficient, handwritten parsers and writers for TrackVis (.trk), MRtrix (.tck), and VTK (.vtk) geometries. The `Tractogram` cache structure securely retains internal pointers to memory-mapped `trx` structs to prevent metadata loss during serialization.
 
 
 * **Memory Management**:
 Utilizes smart pointers and custom scopes for RAII. Calls `malloc_trim(0)` between runs to release memory pages.
 * **Cache Eviction**:
-Uses standard `<fcntl.h>` system calls to get a raw file descriptor and call `posix_fadvise(fd, 0, 0, POSIX_FADV_DONTNEED)`.
+Uses `system()` to execute `sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches'` to globally flush OS read caches.
 * **Write Capability**:
-Supports writing all formats (TRX, TRK, TCK, VTK). Highly optimized C++ encoders for TCK, TRK, and VTK are implemented in `cpp/utils.cpp` utilizing low-overhead binary chunk buffering.
-
+Supports writing all formats (TRX, TRK, TCK, VTK). Highly optimized C++ encoders for TCK, TRK, and VTK are implemented natively in the `trx::legacy` module inside `trx-cpp`, replacing the legacy `cpp/utils.cpp` script.
 ### 🌐 JavaScript (Node.js)
 
 The JavaScript track evaluates the performance of the V8 JavaScript engine running under Node.js. Processing multi-gigabyte files in JS presents several engine-level challenges, which were solved using custom workarounds.
@@ -241,14 +317,14 @@ The JavaScript track evaluates the performance of the V8 JavaScript engine runni
 
 
 * **Technical Workarounds & Engine Bypasses**:
-1. **Node.js 2 GiB File Limit**: Node's default `fs.readFileSync` throws a `RangeError [ERR_FS_FILE_TOO_LARGE]` when attempting to load files exceeding 2 GiB. We implemented a custom chunked binary reader in `js/utils.js` using `fs.openSync` and `fs.readSync` in a loop, pre-allocating a single large `ArrayBuffer` to bypass this V8 boundary.
-2. **Shared ArrayBuffer Corruption**: Libraries like `fflate.unzipSync` decompress files into a shared backing `ArrayBuffer` to avoid memory copies. Instantiating typed arrays natively reads from the start of the shared buffer instead of the decompression slice, causing coordinate/offset corruption. We resolved this by implementing a `getAlignedArray` helper that safely maps bounds using `data.byteOffset` and `data.byteLength`, while enforcing strict byte-alignment boundaries.
+1. **Node.js 2 GiB File Limit**: Node's default `fs.readFileSync` throws a `RangeError [ERR_FS_FILE_TOO_LARGE]` when attempting to load files exceeding 2 GiB. The `readTRX` function in `streamlineIO.mjs` (and the helper in `js/utils.js`) implements a custom chunked binary reader using `fs.openSync` + `fs.readSync` in a 512 MiB loop, pre-allocating a single large `ArrayBuffer` to bypass this V8 boundary.
+2. **Typed Array Alignment (`getAlignedArray`)**: After reading raw bytes via `pread()` or decompressing via `fflate.inflateSync`, the raw `ArrayBuffer` may start at an unaligned byte offset. Wrapping it directly in `new Float32Array(buffer)` would misalign element boundaries, causing silent coordinate corruption. A `getAlignedArray(constructor, dataArray)` helper safely creates a typed view using `dataArray.byteOffset` and `dataArray.byteLength`, and falls back to a copy via `slice()` only when the alignment constraint cannot be satisfied in-place. This was originally motivated by the shared-buffer behavior of `fflate.unzipSync`; it remains necessary with the current direct-offset reader for the same reason.
 3. **TRK Memory Duplication Wall**: Reading legacy `.trk` files historically sliced the underlying header buffer to create the payload array (`buffer.slice()`). On multi-gigabyte datasets, this instantly violated V8's heap constraints by duplicating the entire file in RAM. We patched `readTRK` to map directly onto the existing buffer using `new Int32Array(buffer, offset)`.
-4.  **V8 Heap Memory Configuration**: Large datasets cause Node.js processes to exceed the default heap limit (1.4 GB) and crash with out-of-memory (OOM) errors. The benchmark runner must be invoked with `--max-old-space-size=16384` to expand the heap limit to 16 GB.
-5.  **Garbage Collection**: Node is run with the `--expose-gc` flag. Programmatic memory reclamation is triggered before each run using `global.gc()`.
+4. **V8 Heap Memory Configuration**: Large datasets cause Node.js processes to exceed the default heap limit (1.4 GB) and crash with out-of-memory (OOM) errors. The benchmark runner must be invoked with `--max-old-space-size=16384` to expand the heap limit to 16 GB.
+5. **Garbage Collection**: Node is run with the `--expose-gc` flag. Programmatic memory reclamation is triggered before each run using `global.gc()`.
+6. **Async Timing Correctness**: `readTRX` and `saveTRX` are both `async` functions. `saveTRX` wraps its `WriteStream` in a `new Promise((resolve, reject) => { writeStream.on('finish', resolve); ... writeStream.end(); })` so that the `await` does not resolve until the OS file handle is fully flushed and closed. All benchmark timers (`performance.now()`) bracket the complete I/O operation, not just the stream open.
 *   **Write Capability**:
-Supports writing all formats (TRX, TRK, TCK, VTK) using high-performance chunked encoders in `js/utils.js`. The TRX format is serialized directly to a zip-based archive using `fflate.zipSync`.
-
+Supports writing all formats (TRX, TRK, TCK, VTK) via the `streamlineIO.mjs` module inside the `trx-javascript` core library. The legacy format parsers and generators previously housed in `js/utils.js` were centralized to ensure perfect inverse-affine coordinate parity for formats like TRK.
 ---
 
 ## 📊 Uniform JSON Schema
@@ -277,12 +353,31 @@ To ensure identical parsing structures, every runner output writes to `results/<
 If you clone this repository onto a completely fresh computer, the `orchestrate.py build` command will **fail** from a clean environment. This is because the code does not pull dependencies from package managers, but instead heavily relies on having the local source code for the 4 TRX implementations cloned right alongside the benchmark folder (e.g., `../../trx-cpp`).
 
 **How to fix it for another computer:**
-To make the builds work correctly, you must recreate the exact workspace structure:
-1. Create a `Libraries/trx/` folder.
-2. Clone all 5 repositories into that folder (`trx-python`, `trx-rs`, `trx-cpp`, `trx-javascript`, and `trx-nature-2026-benchmark`).
-3. Download or copy your tractography dataset to that computer.
-4. Export the environment variable pointing to your data: `export TRX_BENCHMARK_DATA_DIR="/path/to/data"`
-5. *Then* you can safely run `./orchestrate.py build`.
+To make the builds work correctly, you must recreate the exact workspace structure by cloning all 5 repositories into a shared parent directory. You can copy and paste the following commands:
+
+```bash
+mkdir -p Libraries/trx
+cd Libraries/trx
+git clone https://github.com/tee-ar-ex/trx-python.git
+git clone https://github.com/tee-ar-ex/trx-rs.git
+git clone https://github.com/tee-ar-ex/trx-cpp.git
+git clone https://github.com/tee-ar-ex/trx-javascript.git
+git clone https://github.com/tee-ar-ex/trx-nature-2026-benchmark.git
+cd trx-nature-2026-benchmark
+```
+
+**Before running the orchestrator:**
+`orchestrate.py` is written in Python and requires `numpy`. Ensure you have completed the **Python Setup** (created a venv and installed `requirements.txt`) before attempting to build.
+
+Additionally, export the environment variable pointing to your downloaded tractography dataset: 
+```bash
+export TRX_BENCHMARK_DATA_DIR="/path/to/data"
+```
+
+*Then* you can safely run:
+```bash
+python3 orchestrate.py build
+```
 
 ---
 
@@ -397,7 +492,7 @@ The orchestration scripts compile all targets, run the benchmark cycles, and gen
 
 1. **Run Everything (Build, Run, & Report)**:
 ```bash
-./run_benchmarks.sh
+python3 orchestrate.py
 
 ```
 This triggers:
@@ -410,30 +505,30 @@ This triggers:
 2.  **Targeted Pipeline Commands**:
 *   **Build Only**: Compile Rust and C++ runners and set up Node packages.
 ```bash
-./run_benchmarks.sh build
+python3 orchestrate.py build
 
 ```
 
 *   **Run Only**: Execute the benchmark runs (assuming they are already compiled).
 ```bash
-./run_benchmarks.sh run
+python3 orchestrate.py run
 
 ```
 *   **Report Only**: Regenerate the Markdown comparison summary table from existing `results/*.json` files.
 ```bash
-./run_benchmarks.sh report
+python3 orchestrate.py report
 
 ```
 
 *   **Clean Build**: Remove all compiled artifacts, cache directories, and generated `results/` JSONs to start fresh.
 ```bash
-./run_benchmarks.sh clean
+python3 orchestrate.py clean
 
 ```
 
 ### Option B: Running Languages Individually
 
-If you want to debug or isolate execution to a single language track, run the scripts directly from the repository root:
+If you want to debug or isolate execution to a single language track, run the scripts directly from the repository root. Note: When converting legacy formats without embedded spatial metadata (`.tck`, `.vtk`) to formats requiring it (`.trx`, `.trk`), you must append `--ref test_data/fa.nii` to the CLI command to reconstruct the affine structures:
 
 * **Python**:
 ```bash

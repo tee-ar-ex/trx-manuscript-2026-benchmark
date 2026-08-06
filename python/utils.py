@@ -22,17 +22,12 @@ def release_memory():
     if libc:
         # 0 means return as much as possible to the OS
         libc.malloc_trim(0)
-    sleep(1)
 
 
 def evict_from_cache(filename):
     """Force OS page cache eviction for the data file."""
     try:
-        fd = os.open(filename, os.O_RDONLY)
-        os.posix_fadvise(fd, 0, os.path.getsize(
-            filename), 4)  # 4 = POSIX_FADV_DONTNEED
-        os.close(fd)
-        sleep(1)
+        os.system("sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches' 2>/dev/null")
     except Exception as e:
         print(f"      [WARN] Cache eviction failed for {filename}: {e}")
 
@@ -131,8 +126,7 @@ def load_data(filename):
         obj = io.load_polydata(filename)
     elif ext == ".trx":
         obj = load_trx(filename)
-        obj.to_memory()
-        obj.streamlines._data = obj.streamlines._data.astype(np.float32)
+        obj = obj.to_memory()
     else:
         raise ValueError(f"Unsupported extension {ext}")
 

@@ -1,35 +1,23 @@
+use serde::Serialize;
 use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
-use std::io::Write;
-use serde::Serialize;
 
 mod utils;
 
 const FILENAMES: &[&str] = &[
-    "f16_ui32_w_metadata.trx",
-    "f16_ui32_wo_metadata.trx",
-    "f16_ui64_w_metadata.trx",
-    "f16_ui64_wo_metadata.trx",
-    "f32_ui64_w_metadata.trx",
-    "f32_ui64_wo_metadata.trx",
-    "f64_ui32_w_metadata.trx",
-    "f64_ui32_wo_metadata.trx",
-    "f32_ui32_w_metadata.trx",
-    "f32_ui32_wo_metadata.trx",
-    "f64_ui64_w_metadata.trx",
-    "f64_ui64_wo_metadata.trx",
-    "f32_w_metadata.trk",
-    "f32_wo_metadata.trk",
-    "f32.tck",
-    "f32_ui32_wo_metadata.vtk",
-    "f32_ui64_wo_metadata.vtk",
-    "f64_ui32_wo_metadata.vtk",
-    "f64_ui64_wo_metadata.vtk",
-    "f32_ui64_w_metadata.vtk",
-    "f64_ui64_w_metadata.vtk",
+    "f16_ui32_w_metadata.trx", "f16_ui32_wo_metadata.trx",
+    "f16_ui64_w_metadata.trx", "f16_ui64_wo_metadata.trx",
+    "f32_ui64_w_metadata.trx", "f32_ui64_wo_metadata.trx",
+    "f64_ui32_w_metadata.trx", "f64_ui32_wo_metadata.trx",
+    "f32_ui32_w_metadata.trx", "f32_ui32_wo_metadata.trx",
+    "f64_ui64_w_metadata.trx", "f64_ui64_wo_metadata.trx",
+    "f32_w_metadata.trk", "f32_wo_metadata.trk", "f32.tck",
+    "f32_ui32_wo_metadata.vtk", "f32_ui64_wo_metadata.vtk",
+    "f64_ui32_wo_metadata.vtk", "f64_ui64_wo_metadata.vtk",
+    "f32_ui64_w_metadata.vtk", "f64_ui64_w_metadata.vtk"
 ];
 
 static EXPECTED_STREAMLINES: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
@@ -48,93 +36,6 @@ struct BenchmarkResults {
     results: InnerResults,
 }
 
-fn write_trk(path: &Path, tractogram: &trx_rs::Tractogram) -> std::result::Result<(), Box<dyn std::error::Error>> {
-    let mut file = fs::File::create(path)?;
-    let mut header_bytes = vec![0u8; 1000];
-
-    // Magic: "TRACK"
-    header_bytes[0..5].copy_from_slice(b"TRACK");
-
-    // Dimensions
-    let header = tractogram.header();
-    let dims = [
-        header.dimensions[0] as i16,
-        header.dimensions[1] as i16,
-        header.dimensions[2] as i16,
-    ];
-    header_bytes[6..8].copy_from_slice(&dims[0].to_le_bytes());
-    header_bytes[8..10].copy_from_slice(&dims[1].to_le_bytes());
-    header_bytes[10..12].copy_from_slice(&dims[2].to_le_bytes());
-
-    // Compute voxel sizes from affine matrix columns norm
-    let vox_to_ras = header.voxel_to_rasmm;
-    let voxel_sizes = [
-        ((vox_to_ras[0][0].powi(2) + vox_to_ras[1][0].powi(2) + vox_to_ras[2][0].powi(2)).sqrt()) as f32,
-        ((vox_to_ras[0][1].powi(2) + vox_to_ras[1][1].powi(2) + vox_to_ras[2][1].powi(2)).sqrt()) as f32,
-        ((vox_to_ras[0][2].powi(2) + vox_to_ras[1][2].powi(2) + vox_to_ras[2][2].powi(2)).sqrt()) as f32,
-    ];
-    header_bytes[12..16].copy_from_slice(&voxel_sizes[0].to_le_bytes());
-    header_bytes[16..20].copy_from_slice(&voxel_sizes[1].to_le_bytes());
-    header_bytes[20..24].copy_from_slice(&voxel_sizes[2].to_le_bytes());
-
-    // vox_to_ras
-    let mut offset = 440;
-    for r in 0..4 {
-        for c in 0..4 {
-            let val = vox_to_ras[r][c] as f32;
-            header_bytes[offset..offset+4].copy_from_slice(&val.to_le_bytes());
-            offset += 4;
-        }
-    }
-
-    // Voxel order
-    header_bytes[948..952].copy_from_slice(b"RAS\0");
-
-    // Number of tracks
-    let nb_streamlines = tractogram.nb_streamlines() as i32;
-    header_bytes[988..992].copy_from_slice(&nb_streamlines.to_le_bytes());
-
-    // Version
-    let version = 2i32;
-    header_bytes[992..996].copy_from_slice(&version.to_le_bytes());
-
-    // Header size
-    let hdr_size = 1000i32;
-    header_bytes[996..1000].copy_from_slice(&hdr_size.to_le_bytes());
-
-    file.write_all(&header_bytes)?;
-
-    // Streamlines payload
-    let offsets = tractogram.offsets();
-    let positions = tractogram.positions();
-    let mut chunk = Vec::with_capacity(4 * 1024 * 1024);
-
-    for i in 0..tractogram.nb_streamlines() {
-        let start = offsets[i] as usize;
-        let end = offsets[i+1] as usize;
-        let n_points = (end - start) as i32;
-
-        chunk.extend_from_slice(&n_points.to_le_bytes());
-        for j in start..end {
-            let pt = positions[j];
-            chunk.extend_from_slice(&pt[0].to_le_bytes());
-            chunk.extend_from_slice(&pt[1].to_le_bytes());
-            chunk.extend_from_slice(&pt[2].to_le_bytes());
-        }
-
-        if chunk.len() >= 4000000 {
-            file.write_all(&chunk)?;
-            chunk.clear();
-        }
-    }
-
-    if !chunk.is_empty() {
-        file.write_all(&chunk)?;
-    }
-
-    Ok(())
-}
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 1. Locate dataset directory
     let data_dir_str = match env::var("TRX_BENCHMARK_DATA_DIR") {
@@ -146,12 +47,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let data_dir = Path::new(&data_dir_str);
     if !data_dir.exists() {
-        eprintln!("Error: TRX_BENCHMARK_DATA_DIR does not point to an existing directory: {:?}", data_dir);
+        eprintln!(
+            "Error: TRX_BENCHMARK_DATA_DIR does not point to an existing directory: {:?}",
+            data_dir
+        );
         std::process::exit(1);
     }
 
     let mut loading = HashMap::new();
     let mut saving = HashMap::new();
+
+    let num_iterations: usize = env::var("TRX_BENCHMARK_ITERATIONS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(10);
 
     // Create a local tmp directory for saving benchmark
     let tmp_dir = PathBuf::from("tmp_benchmark_saving");
@@ -180,20 +89,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
 
         // --- Benchmarking Loading ---
-        println!("Benchmarking Loading for {} (11 iterations)...", filename);
+        println!("Benchmarking Loading for {} ({} iterations)...", filename, num_iterations + 1);
         let mut load_times = Vec::new();
-        for i in 0..11 {
+        for i in 0..(num_iterations + 1) {
             // Evict file from cache
             if let Err(e) = utils::evict_from_cache(&path) {
                 println!("      [WARN] Cache eviction failed for {}: {}", filename, e);
             }
-            std::thread::sleep(std::time::Duration::from_secs(1));
 
             let t0 = Instant::now();
             let tractogram = match ext {
-                ".trk" => utils::load_trk(&path).map_err(|e| e.to_string()),
-                ".vtk" => utils::load_vtk(&path).map_err(|e| e.to_string()),
-                _ => trx_rs::read_tractogram(&path, &trx_rs::ConversionOptions::default()).map_err(|e| e.to_string())
+                ".trk" => trx_rs::legacy_io::load_trk(&path).map_err(|e| e.to_string()),
+                ".vtk" => trx_rs::legacy_io::load_vtk(&path).map_err(|e| e.to_string()),
+                _ => trx_rs::read_tractogram(&path, &trx_rs::ConversionOptions::default())
+                    .map_err(|e| e.to_string()),
             };
             let tractogram = match tractogram {
                 Ok(t) => t,
@@ -206,10 +115,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let nb_streamlines = tractogram.nb_streamlines();
             let nb_vertices = tractogram.nb_vertices();
-            
+
             let expected_s = *EXPECTED_STREAMLINES.get_or_init(|| nb_streamlines);
             let expected_v = *EXPECTED_VERTICES.get_or_init(|| nb_vertices);
-            
+
             if nb_streamlines != expected_s || nb_vertices != expected_v {
                 println!(
                     "    [FAIL] {} - Wrong size detected! streamlines: {}, vertices: {}",
@@ -228,15 +137,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if !load_times.is_empty() {
             let avg = mean(&load_times);
             let std_dev = stddev(&load_times, avg);
-            println!("Summary for {}: {:.4} +/- {:.4} seconds.\n", filename, avg, std_dev);
+            println!(
+                "Summary for {}: {:.4} +/- {:.4} seconds.\n",
+                filename, avg, std_dev
+            );
             loading.insert(filename.to_string(), load_times);
         }
 
         // Load the tractogram once for saving benchmark
         let tractogram = match ext {
-            ".trk" => utils::load_trk(&path).map_err(|e| e.to_string()),
-            ".vtk" => utils::load_vtk(&path).map_err(|e| e.to_string()),
-            _ => trx_rs::read_tractogram(&path, &trx_rs::ConversionOptions::default()).map_err(|e| e.to_string())
+            ".trk" => trx_rs::legacy_io::load_trk(&path).map_err(|e| e.to_string()),
+            ".vtk" => trx_rs::legacy_io::load_vtk(&path).map_err(|e| e.to_string()),
+            _ => trx_rs::read_tractogram(&path, &trx_rs::ConversionOptions::default())
+                .map_err(|e| e.to_string()),
         };
         let tractogram = match tractogram {
             Ok(t) => t,
@@ -260,18 +173,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             ..Default::default()
         };
 
-
-
-        println!("Benchmarking Saving for {} (11 iterations)...", filename);
+        println!("Benchmarking Saving for {} ({} iterations)...", filename, num_iterations + 1);
         let mut save_times = Vec::new();
-        for i in 0..11 {
-            std::thread::sleep(std::time::Duration::from_secs(1));
-
+        for i in 0..(num_iterations + 1) {
             let save_path = tmp_dir.join(format!("tmp_save_{}{}", i, ext));
 
             let t0 = Instant::now();
             let write_res = if ext == ".trk" {
-                write_trk(&save_path, &tractogram)
+                trx_rs::legacy_io::write_trk(&save_path, &tractogram, None)
             } else {
                 trx_rs::write_tractogram(&save_path, &tractogram, &options).map_err(|e| e.into())
             };
@@ -301,7 +210,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if !save_times.is_empty() {
             let avg = mean(&save_times);
             let std_dev = stddev(&save_times, avg);
-            println!("Summary for {}: {:.4} +/- {:.4} seconds.\n", filename, avg, std_dev);
+            println!(
+                "Summary for {}: {:.4} +/- {:.4} seconds.\n",
+                filename, avg, std_dev
+            );
             saving.insert(filename.to_string(), save_times);
         }
     }
@@ -337,11 +249,13 @@ fn mean(data: &[f64]) -> f64 {
 }
 
 fn stddev(data: &[f64], mean: f64) -> f64 {
-    let variance = data.iter()
+    let variance = data
+        .iter()
         .map(|value| {
             let diff = mean - value;
             diff * diff
         })
-        .sum::<f64>() / data.len() as f64;
+        .sum::<f64>()
+        / data.len() as f64;
     variance.sqrt()
 }

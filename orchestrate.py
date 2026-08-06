@@ -1,9 +1,12 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 import os
 import sys
 import json
 import subprocess
 import numpy as np
+import argparse
+import shutil
+import glob
 
 FILENAMES = [
     "f16_ui32_w_metadata.trx", "f16_ui32_wo_metadata.trx",
@@ -20,6 +23,12 @@ FILENAMES = [
 
 LANGUAGES = ["python", "rust", "cpp", "javascript"]
 
+# Control the number of iterations for all benchmarks
+# (e.g., set to 1 for quick testing, 10 for thorough benchmarking)
+NUM_ITERATIONS = 10
+os.environ["TRX_BENCHMARK_ITERATIONS"] = str(NUM_ITERATIONS)
+
+
 
 def print_banner(msg):
     print("=" * 60)
@@ -30,13 +39,20 @@ def print_banner(msg):
 def check_env():
     data_dir = os.environ.get("TRX_BENCHMARK_DATA_DIR")
     if not data_dir:
-        print(
-            "[ERROR] Environment variable TRX_BENCHMARK_DATA_DIR is not set.",
-            file=sys.stderr)
-        print(
-            "Please set it pointing to the folder containing tractography benchmark files.",
-            file=sys.stderr)
-        sys.exit(1)
+        default_dir = os.path.abspath(os.path.join(
+            os.path.dirname(__file__), "..", "trx_benchmark_04_2026"))
+        if os.path.isdir(default_dir):
+            print(f"[INFO] Found default benchmark dataset at {default_dir}")
+            os.environ["TRX_BENCHMARK_DATA_DIR"] = default_dir
+            data_dir = default_dir
+        else:
+            print(
+                "[ERROR] Environment variable TRX_BENCHMARK_DATA_DIR is not set.",
+                file=sys.stderr)
+            print(
+                "Please set it pointing to the folder containing tractography benchmark files.",
+                file=sys.stderr)
+            sys.exit(1)
     if not os.path.isdir(data_dir):
         print(
             f"[ERROR] TRX_BENCHMARK_DATA_DIR directory '{data_dir}' does not exist.",
@@ -64,7 +80,9 @@ def build_rust():
             env["PATH"] = f"{cargo_bin}:{env.get('PATH', '')}"
         subprocess.run(["cargo", "build", "--release"],
                        cwd="rust", env=env, check=True)
-        print("[SUCCESS] Rust runner compiled.")
+        subprocess.run(["cargo", "build", "--release"],
+                       cwd="test_data/rust", env=env, check=True)
+        print("[SUCCESS] Rust runners compiled.")
     except Exception as e:
         print(f"[ERROR] Rust runner compilation failed: {e}", file=sys.stderr)
 
@@ -76,7 +94,17 @@ def build_cpp():
         subprocess.run(["cmake", "-DCMAKE_BUILD_TYPE=Release",
                        ".."], cwd="cpp/build", check=True)
         subprocess.run(["make", "-j"], cwd="cpp/build", check=True)
-        print("[SUCCESS] C++ runner compiled.")
+
+        os.makedirs("test_data/cpp/build", exist_ok=True)
+        subprocess.run(["cmake", "-DCMAKE_BUILD_TYPE=Release",
+                       ".."], cwd="test_data/cpp/build", check=True)
+        subprocess.run(["make", "-j"], cwd="test_data/cpp/build", check=True)
+        import shutil
+        if os.path.exists("test_data/cpp/build/test_cpp"):
+            shutil.copy2("test_data/cpp/build/test_cpp",
+                         "test_data/cpp/test_cpp")
+
+        print("[SUCCESS] C++ runners compiled.")
     except Exception as e:
         print(
             f"[ERROR] C++ runner compilation failed (ensure cpp directory exists and is implemented): {e}",
@@ -110,9 +138,8 @@ def run_rust():
             "release",
             "trx-nature-2026-benchmark-rust")
         if not os.path.isfile(binary_path):
-            # Fallback to local execution directory or cargo run
-            subprocess.run(["cargo", "run", "--release"],
-                           cwd="rust", check=True)
+            subprocess.run(["cargo", "run", "--release",
+                           "--manifest-path", "rust/Cargo.toml"], check=True)
         else:
             subprocess.run([f"./{binary_path}"], check=True)
         print("[SUCCESS] Rust benchmarks completed.")
@@ -123,7 +150,6 @@ def run_rust():
 def run_js():
     print_banner("Running JavaScript benchmarks...")
     try:
-        # Run node with expanded heap memory to handle large files
         subprocess.run(["node",
                         "--expose-gc",
                         "--max-old-space-size=16384",
@@ -149,11 +175,11 @@ def run_cpp():
         print(f"[ERROR] C++ benchmarks failed: {e}", file=sys.stderr)
 
 
-def load_results():
+def load_results(out_dir):
     results = {}
     for lang in LANGUAGES:
         results[lang] = None
-        results_file = os.path.join("results", f"{lang}_results.json")
+        results_file = os.path.join(out_dir, f"{lang}_results.json")
         if os.path.isfile(results_file):
             try:
                 with open(results_file, "r") as f:
@@ -165,22 +191,25 @@ def load_results():
     return results
 
 
-def compute_stats(runs):
+def compute_stats(runs, file_size_mb=None):
     if not runs:
         return "N/A"
-    # Filter out None values or invalid elements
     valid_runs = [r for r in runs if r is not None]
     if not valid_runs:
         return "N/A"
 
     mean = np.mean(valid_runs)
     std = np.std(valid_runs)
-    return f"{mean:.4f} ± {std:.4f}"
+    res = f"{mean:.4f} ± {std:.4f}"
+    if file_size_mb and mean > 0:
+        throughput = file_size_mb / mean
+        res += f" ({throughput:.0f} MB/s)"
+    return res
 
 
-def generate_report():
+def generate_report(out_dir):
     print_banner("Generating consolidated benchmark report...")
-    results = load_results()
+    results = load_results(out_dir)
 
     headers = [
         "Format / Filename",
@@ -202,6 +231,13 @@ def generate_report():
     for filename in FILENAMES:
         row = [f"`{filename}`"]
 
+        file_size_mb = None
+        data_dir = os.environ.get('TRX_BENCHMARK_DATA_DIR')
+        if data_dir:
+            filepath = os.path.join(data_dir, filename)
+            if os.path.exists(filepath):
+                file_size_mb = os.path.getsize(filepath) / 1000000.0
+
         for lang in LANGUAGES:
             lang_data = results.get(lang)
             load_str = "N/A"
@@ -210,13 +246,11 @@ def generate_report():
             if lang_data and "results" in lang_data:
                 res = lang_data["results"]
 
-                # Extract loading times
                 loading_runs = res.get("loading", {}).get(filename)
-                load_str = compute_stats(loading_runs)
+                load_str = compute_stats(loading_runs, file_size_mb)
 
-                # Extract saving times
                 saving_runs = res.get("saving", {}).get(filename)
-                save_str = compute_stats(saving_runs)
+                save_str = compute_stats(saving_runs, file_size_mb)
 
             row.extend([load_str, save_str])
 
@@ -224,9 +258,8 @@ def generate_report():
 
     report = "\n".join(md_lines)
 
-    # Save report
-    os.makedirs("results", exist_ok=True)
-    summary_file = os.path.join("results", "summary.md")
+    os.makedirs(out_dir, exist_ok=True)
+    summary_file = os.path.join(out_dir, "summary.md")
     with open(summary_file, "w") as f:
         f.write(report)
 
@@ -237,74 +270,85 @@ def generate_report():
 
 
 def main():
+    parser = argparse.ArgumentParser(
+        description="Multi-Language Tractography Benchmark Orchestrator")
+    parser.add_argument("--build", action="store_true",
+                        help="Compile and set up runners")
+    parser.add_argument("--run", action="store_true",
+                        help="Execute the benchmark runners")
+    parser.add_argument("--clean", action="store_true",
+                        help="Clean build artifacts and temporary files")
+    parser.add_argument("--summary", action="store_true",
+                        help="Generate the markdown summary table")
+    parser.add_argument("--all", action="store_true",
+                        help="Execute build, run, and summary phases")
+    parser.add_argument("-f", "--force_overwrite", action="store_true",
+                        help="Force overwrite of existing benchmark outputs")
+    parser.add_argument("--out_dir", default="results",
+                        help="Directory to load/save JSON and summary output")
+    parser.add_argument("--trx_benchmark_data_dir",
+                        help="Override the dataset input directory path")
+
+    args = parser.parse_args()
+
+    # Apply environment overrides
+    if args.trx_benchmark_data_dir:
+        os.environ["TRX_BENCHMARK_DATA_DIR"] = os.path.abspath(
+            args.trx_benchmark_data_dir)
+
+    if args.force_overwrite:
+        os.environ["TRX_BENCHMARK_FORCE_OVERWRITE"] = "1"
+
+    os.environ["TRX_BENCHMARK_OUT_DIR"] = os.path.abspath(args.out_dir)
+
     check_env()
 
-    # If run with arguments, check what was requested
-    args = sys.argv[1:]
+    # If no action is specified, default to all
+    if not (args.build or args.clean or args.run or args.summary or args.all):
+        args.all = True
 
-    if not args or "all" in args:
-        # Build phase
+    if args.clean:
+        print_banner("Cleaning benchmark artifacts...")
+        shutil.rmtree("cpp/build", ignore_errors=True)
+        shutil.rmtree("rust/target", ignore_errors=True)
+        shutil.rmtree("js/node_modules", ignore_errors=True)
+        shutil.rmtree(args.out_dir, ignore_errors=True)
+        shutil.rmtree("test_data/cpp/CMakeFiles", ignore_errors=True)
+        shutil.rmtree("test_data/cpp/trx-cpp-build", ignore_errors=True)
+        shutil.rmtree("test_data/cpp/_deps", ignore_errors=True)
+
+        for f in glob.glob("test_data/tmp*") + glob.glob("test_data/relay*"):
+            try:
+                os.remove(f)
+            except BaseException:
+                pass
+        for f in ["test_cpp", "CMakeCache.txt", "Makefile", "cmake_install.cmake"]:
+            try:
+                os.remove(os.path.join("test_data/cpp", f))
+            except BaseException:
+                pass
+
+        print("[SUCCESS] Cleanup complete.")
+
+        # If ONLY clean was passed, exit early
+        if not (args.build or args.run or args.summary or args.all):
+            return
+
+    if args.all or args.build:
         build_rust()
         build_cpp()
         setup_js()
 
-        # Run phase
+    if args.all or args.run:
+        # Create output directory for runners to use if they respect TRX_BENCHMARK_OUT_DIR
+        os.makedirs(args.out_dir, exist_ok=True)
         run_python()
         run_rust()
         run_js()
         run_cpp()
 
-        # Report phase
-        generate_report()
-    elif "report" in args:
-        generate_report()
-    elif "clean" in args:
-        print_banner("Cleaning benchmark artifacts...")
-        import shutil
-        import glob
-        if os.path.exists("results/tmp_benchmark_saving"):
-            shutil.rmtree("results/tmp_benchmark_saving", ignore_errors=True)
-        for f in os.listdir("results") if os.path.exists("results") else []:
-            if f.endswith(".json"):
-                os.remove(os.path.join("results", f))
-
-        # Clean test_data artifacts
-        for f in glob.glob("test_data/tmp_*.trx"):
-            try:
-                os.remove(f)
-            except BaseException:
-                pass
-        if os.path.exists("test_data/cpp/CMakeFiles"):
-            shutil.rmtree("test_data/cpp/CMakeFiles", ignore_errors=True)
-        if os.path.exists("test_data/cpp/trx-cpp-build"):
-            shutil.rmtree("test_data/cpp/trx-cpp-build", ignore_errors=True)
-        if os.path.exists("test_data/cpp/_deps"):
-            shutil.rmtree("test_data/cpp/_deps", ignore_errors=True)
-        for f in [
-            "test_cpp",
-            "CMakeCache.txt",
-            "Makefile",
-                "cmake_install.cmake"]:
-            try:
-                os.remove(os.path.join("test_data/cpp", f))
-            except BaseException:
-                pass
-        if os.path.exists("test_data/rust/target"):
-            shutil.rmtree("test_data/rust/target", ignore_errors=True)
-
-        print("[SUCCESS] Cleanup complete.")
-    else:
-        if "build" in args:
-            build_rust()
-            build_cpp()
-            setup_js()
-        if "run" in args:
-            run_python()
-            run_rust()
-            run_js()
-            run_cpp()
-        if "report" in args:
-            generate_report()
+    if args.all or args.summary:
+        generate_report(args.out_dir)
 
 
 if __name__ == "__main__":

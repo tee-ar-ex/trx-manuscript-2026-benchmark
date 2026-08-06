@@ -5,4 +5,5 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+nalgebra = "0.35.0"
 trx-rs = { path = "/home/local/USHERBROOKE/rhef1902/Libraries/trx/trx-nature-2026-benchmark/../trx-rs" }

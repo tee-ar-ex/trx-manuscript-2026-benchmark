@@ -58,6 +58,8 @@ def main():
         "results")
     os.makedirs(results_dir, exist_ok=True)
 
+    num_iterations = int(os.environ.get("TRX_BENCHMARK_ITERATIONS", 10))
+
     tmp_save_dir = os.path.join(results_dir, "tmp_benchmark_saving")
     os.makedirs(tmp_save_dir, exist_ok=True)
 
@@ -87,9 +89,12 @@ def main():
         obj = None
         loading_failed = False
 
-        for i in range(11):
-            evict_from_cache(filepath)
+        for i in range(num_iterations + 1):
+            if obj is not None:
+                del obj
+                obj = None
             release_memory()
+            evict_from_cache(filepath)
 
             t0 = time.time()
             try:
@@ -141,7 +146,7 @@ def main():
         save_times = []
         saving_failed = False
 
-        for i in range(11):
+        for i in range(num_iterations + 1):
             release_memory()
             save_path = os.path.join(tmp_save_dir, f"tmp_save_{i}{ext}")
 
@@ -150,7 +155,12 @@ def main():
                 if ext in [".trk", ".tck"]:
                     nib.streamlines.save(obj, save_path)
                 elif ext in [".vtk", ".vtp", ".fib"]:
-                    io.save_polydata(obj, save_path, binary=True)
+                    import vtk
+                    writer = vtk.vtkPolyDataWriter()
+                    writer.SetFileName(save_path)
+                    writer.SetFileTypeToBinary()
+                    writer.SetInputData(obj)
+                    writer.Write()
                 elif ext == ".trx":
                     from trx.trx_file_memmap import save as save_trx
                     save_trx(obj, save_path)

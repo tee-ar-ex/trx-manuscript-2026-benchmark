@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <map>
 #include "utils.hpp"
+using namespace trx::legacy;
 
 namespace fs = std::filesystem;
 
@@ -34,6 +35,11 @@ int main() {
     
     std::cout << "Data directory: " << data_dir << std::endl;
     
+    int num_iterations = 10;
+    if (std::getenv("TRX_BENCHMARK_ITERATIONS")) {
+        num_iterations = std::atoi(std::getenv("TRX_BENCHMARK_ITERATIONS"));
+    }
+    
     std::map<std::string, std::vector<double>> loading_results;
     std::map<std::string, std::vector<double>> saving_results;
     
@@ -49,12 +55,12 @@ int main() {
         }
         
         std::string ext = file_path.extension().string();
-        std::cout << "Benchmarking Loading for " << filename << " (11 iterations)..." << std::endl;
+        std::cout << "Benchmarking Loading for " << filename << " (" << (num_iterations + 1) << " iterations)..." << std::endl;
         
         std::vector<double> load_times;
         bool load_success = true;
         
-        for (int i = 0; i < 11; ++i) {
+        for (int i = 0; i < num_iterations + 1; ++i) {
             evict_from_cache(file_path.string());
             release_memory();
             
@@ -118,7 +124,7 @@ int main() {
         
         // Benchmarking Saving (for all formats)
         if (load_success) {
-            std::cout << "Benchmarking Saving for " << filename << " (11 iterations)..." << std::endl;
+            std::cout << "Benchmarking Saving for " << filename << " (" << (num_iterations + 1) << " iterations)..." << std::endl;
             std::vector<double> save_times;
             bool save_success = true;
             
@@ -129,7 +135,7 @@ int main() {
             else if (ext == ".tck") load_tck(file_path.string(), tr);
             else if (ext == ".vtk") load_vtk(file_path.string(), tr);
             
-            for (int i = 0; i < 11; ++i) {
+            for (int i = 0; i < num_iterations + 1; ++i) {
                 release_memory();
                 fs::path save_path = fs::path(tmp_dir) / ("tmp_save_" + std::to_string(i) + ext);
                 
