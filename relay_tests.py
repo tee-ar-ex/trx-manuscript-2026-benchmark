@@ -6,9 +6,10 @@ from trx.trx_file_memmap import load as load_trx
 from trx.trx_file_memmap import save as save_trx
 
 
-def run_cmd(cmd):
-    print(f"Running: {' '.join(cmd)}")
-    subprocess.run(cmd, check=True)
+def run_cmd(cmd, verbose=False):
+    if verbose:
+        print(f"Running: {' '.join(cmd)}")
+    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def get_runner(lang):
@@ -22,7 +23,7 @@ def get_runner(lang):
         return ["node", "test_data/run_js.mjs"]
 
 
-def test_language_relay():
+def test_language_relay(verbose=False):
     print("\n--- Running Test 1: Language Relay (All Combinations) ---")
     gs_file = "test_data/f32_ui32_w_metadata.trx"
     t_orig = load_trx(gs_file)
@@ -31,7 +32,8 @@ def test_language_relay():
     total = 0
     for perm in itertools.permutations(langs):
         total += 1
-        print(f"\nPermutation {total}/24: {' -> '.join(perm)}")
+        if verbose:
+            print(f"Permutation {total}/24: {' -> '.join(perm)}")
         current_input = gs_file
 
         for lang in perm:
@@ -42,22 +44,20 @@ def test_language_relay():
             ext_in = os.path.splitext(current_input)[1].lower()
             if ext_in in [".tck", ".vtk"]:
                 cmd += ["--ref", "test_data/fa.nii"]
-            run_cmd(cmd)
+            run_cmd(cmd, verbose=verbose)
             current_input = out_file
 
         t_final = load_trx(current_input)
-        if np.allclose(t_orig.streamlines._data, t_final.streamlines._data, atol=1e-3):
-            print(f"[PASSED] Combination {' -> '.join(perm)}")
-        else:
+        if not np.allclose(t_orig.streamlines._data, t_final.streamlines._data, atol=1e-3):
             print(
                 f"[FAILED] Combination {' -> '.join(perm)}: Coordinates drifted!")
             failed += 1
 
     if failed == 0:
         print(
-            "\n[SUCCESS] All 24 language relay permutations passed without coordinate drift!")
+            "[PASSED] Language Relay: All 24 language relay permutations passed without coordinate drift!")
     else:
-        print(f"\n[ERROR] {failed}/24 permutations failed.")
+        print(f"[ERROR] {failed}/24 permutations failed.")
 
 
 def get_rasmm(trx_obj):
@@ -71,25 +71,26 @@ def get_rasmm(trx_obj):
     return pts_rasmm
 
 
-def test_format_relay():
+def test_format_relay(verbose=False):
     print("\n--- Running Test 2: Format Relay ---")
     gs_file = "test_data/f32_ui32_w_metadata.trx"
     out_trk = "test_data/relay.trk"
     out_tck = "test_data/relay.tck"
+    out_vtk = "test_data/relay.vtk"
     out_trx = "test_data/relay_format.trx"
 
     # Convert TRX -> TRK (via JS)
-    print("TRX -> TRK (via JS)")
-    run_cmd(["node", "test_data/run_js.mjs", gs_file, out_trk])
+    run_cmd(["node", "test_data/run_js.mjs", gs_file, out_trk], verbose=verbose)
 
     # Convert TRK -> TCK (via C++)
-    print("TRK -> TCK (via C++)")
-    run_cmd(["test_data/cpp/test_cpp", out_trk, out_tck])
+    run_cmd(["test_data/cpp/test_cpp", out_trk, out_tck], verbose=verbose)
 
-    # Convert TCK -> TRX (via Rust)
-    print("TCK -> TRX (via Rust)")
+    # Convert TCK -> VTK (via C++)
+    run_cmd(["test_data/cpp/test_cpp", out_tck, out_vtk], verbose=verbose)
+
+    # Convert VTK -> TRX (via Rust)
     run_cmd(["test_data/rust/target/release/test_rust",
-            out_tck, out_trx, "--ref", "test_data/fa.nii"])
+            out_vtk, out_trx, "--ref", "test_data/fa.nii"], verbose=verbose)
 
     # Validate output in RASMM space
     t_orig = load_trx(gs_file)
@@ -99,14 +100,14 @@ def test_format_relay():
     final_rasmm = get_rasmm(t_final)
 
     if np.allclose(orig_rasmm, final_rasmm, atol=1e-3):
-        print("[PASSED] Format Relay: RASMM coordinates maintained across formats!")
+        print("[PASSED] Format Relay: RASMM coordinates maintained across all formats (TRX -> TRK -> TCK -> VTK -> TRX)!")
     else:
         max_drift = np.max(np.abs(orig_rasmm - final_rasmm))
         print(
             f"[FAILED] Format Relay: Coordinates drifted by {max_drift:.5f} mm!")
 
 
-def test_precision_relay():
+def test_precision_relay(verbose=False):
     print("\n--- Running Test 3: Precision Relay ---")
     gs_file = "test_data/f32_ui32_w_metadata.trx"
     out_f32 = "test_data/relay_p32.trx"
@@ -128,7 +129,7 @@ t.streamlines._data = t.streamlines._data.astype(np.float16)
 t.header['DATA_TYPE'] = 'float16'
 save(t, '{out_f16}')
 """)
-    run_cmd(["python3", script_f16])
+    run_cmd(["python3", script_f16], verbose=verbose)
 
     t_f16 = load_trx(out_f16)
     max_diff = np.max(np.abs(t_orig.streamlines._data.astype(
@@ -137,7 +138,7 @@ save(t, '{out_f16}')
         f"[PASSED] Precision Relay: Downcasting f32->f16 -> Max coordinate drift: {max_diff:.5f} mm")
 
 
-def test_metadata_relay():
+def test_metadata_relay(verbose=False):
     print("\n--- Running Test 4: Metadata Relay ---")
     gs_file = "test_data/f32_ui32_w_metadata.trx"
     out_py = "test_data/relay_meta_py.trx"
@@ -145,17 +146,10 @@ def test_metadata_relay():
     out_cpp = "test_data/relay_meta_cpp.trx"
     out_js = "test_data/relay_meta_js.trx"
 
-    print("Pass via Python...")
-    run_cmd(["python3", "test_data/run_py.py", gs_file, out_py])
-
-    print("Pass via Rust...")
-    run_cmd(["test_data/rust/target/release/test_rust", out_py, out_rs])
-
-    print("Pass via C++...")
-    run_cmd(["test_data/cpp/test_cpp", out_rs, out_cpp])
-
-    print("Pass via JS...")
-    run_cmd(["node", "test_data/run_js.mjs", out_cpp, out_js])
+    run_cmd(["python3", "test_data/run_py.py", gs_file, out_py], verbose=verbose)
+    run_cmd(["test_data/rust/target/release/test_rust", out_py, out_rs], verbose=verbose)
+    run_cmd(["test_data/cpp/test_cpp", out_rs, out_cpp], verbose=verbose)
+    run_cmd(["node", "test_data/run_js.mjs", out_cpp, out_js], verbose=verbose)
 
     t_orig = load_trx(gs_file)
     t_final = load_trx(out_js)

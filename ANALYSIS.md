@@ -9,9 +9,7 @@ benchmark.
 
 ## 1. Recent Architecture Centralization
 
-Historically, the `trx-nature-2026-benchmark` repository contained massive amounts of
-duplicated IO logic across JavaScript, C++, and Rust in order to bypass shortcomings in the
-core `trx` libraries (especially regarding legacy TRK, TCK, and VTK support).
+Historically, the `trx-nature-2026-benchmark` repository contained redundant I/O logic across JavaScript, C++, and Rust in order to bypass shortcomings in the core `trx` libraries (especially regarding legacy TRK, TCK, and VTK support).
 
 As of the latest major refactor:
 
@@ -21,9 +19,7 @@ As of the latest major refactor:
 * **Metadata Integrity:** Translating from legacy formats (or memory-mapped TRXs) no longer
   drops original header metadata. For instance, `trx-cpp` caches the `original_trx` state to
   prevent destructive downcasting during standard conversions.
-* **Perfect Precision:** By meticulously mapping `rasmm` to voxel space using inverse affine
-  transforms (especially during JS TRK export), cross-language coordinate parity is maintained
-  to within 0.001 mm tolerance.
+* **Spatial Precision:** By mapping `rasmm` to voxel space using inverse affine transforms (especially during JS TRK export), cross-language coordinate parity is maintained to within 0.001 mm tolerance.
 
 ---
 
@@ -95,8 +91,7 @@ searching for a matching Local File Header. For an archive with `k` arrays:
 Complexity: O(k × file_size)
 ```
 
-On a 6 GB dataset with 50 metadata arrays, this caused ~300 GB of data to be scanned before
-any actual data was loaded — a catastrophic performance regression.
+On a 6 GB dataset with 50 metadata arrays, this caused ~300 GB of data to be scanned before any actual data was loaded — a significant performance bottleneck.
 
 ### New Approach: Single-Pass `build_zip_offset_map` (O(file_size) + O(k))
 

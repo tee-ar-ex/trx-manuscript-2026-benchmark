@@ -8,27 +8,16 @@ use std::time::Instant;
 mod utils;
 
 const FILENAMES: &[&str] = &[
-    "f16_ui32_w_metadata.trx",
-    "f16_ui32_wo_metadata.trx",
-    "f16_ui64_w_metadata.trx",
-    "f16_ui64_wo_metadata.trx",
-    "f32_ui64_w_metadata.trx",
-    "f32_ui64_wo_metadata.trx",
-    "f64_ui32_w_metadata.trx",
-    "f64_ui32_wo_metadata.trx",
-    "f32_ui32_w_metadata.trx",
-    "f32_ui32_wo_metadata.trx",
-    "f64_ui64_w_metadata.trx",
-    "f64_ui64_wo_metadata.trx",
-    "f32_w_metadata.trk",
-    "f32_wo_metadata.trk",
-    "f32.tck",
-    "f32_ui32_wo_metadata.vtk",
-    "f32_ui64_wo_metadata.vtk",
-    "f64_ui32_wo_metadata.vtk",
-    "f64_ui64_wo_metadata.vtk",
-    "f32_ui64_w_metadata.vtk",
-    "f64_ui64_w_metadata.vtk",
+    "f16_ui32_w_metadata.trx", "f16_ui32_wo_metadata.trx",
+    "f16_ui64_w_metadata.trx", "f16_ui64_wo_metadata.trx",
+    "f32_ui64_w_metadata.trx", "f32_ui64_wo_metadata.trx",
+    "f64_ui32_w_metadata.trx", "f64_ui32_wo_metadata.trx",
+    "f32_ui32_w_metadata.trx", "f32_ui32_wo_metadata.trx",
+    "f64_ui64_w_metadata.trx", "f64_ui64_wo_metadata.trx",
+    "f32_w_metadata.trk", "f32_wo_metadata.trk", "f32.tck",
+    "f32_ui32_wo_metadata.vtk", "f32_ui64_wo_metadata.vtk",
+    "f64_ui32_wo_metadata.vtk", "f64_ui64_wo_metadata.vtk",
+    "f32_ui64_w_metadata.vtk", "f64_ui64_w_metadata.vtk"
 ];
 
 static EXPECTED_STREAMLINES: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
