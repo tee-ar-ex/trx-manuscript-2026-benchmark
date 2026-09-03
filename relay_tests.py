@@ -59,6 +59,8 @@ def test_language_relay(verbose=False):
     else:
         print(f"[ERROR] {failed}/24 permutations failed.")
 
+    return failed == 0
+
 
 def get_rasmm(trx_obj):
     pts = trx_obj.streamlines._data
@@ -101,10 +103,12 @@ def test_format_relay(verbose=False):
 
     if np.allclose(orig_rasmm, final_rasmm, atol=1e-3):
         print("[PASSED] Format Relay: RASMM coordinates maintained across all formats (TRX -> TRK -> TCK -> VTK -> TRX)!")
+        return True
     else:
         max_drift = np.max(np.abs(orig_rasmm - final_rasmm))
         print(
             f"[FAILED] Format Relay: Coordinates drifted by {max_drift:.5f} mm!")
+        return False
 
 
 def test_precision_relay(verbose=False):
@@ -134,8 +138,14 @@ save(t, '{out_f16}')
     t_f16 = load_trx(out_f16)
     max_diff = np.max(np.abs(t_orig.streamlines._data.astype(
         np.float32) - t_f16.streamlines._data.astype(np.float32)))
-    print(
-        f"[PASSED] Precision Relay: Downcasting f32->f16 -> Max coordinate drift: {max_diff:.5f} mm")
+    if max_diff <= 1e-3:
+        print(
+            f"[PASSED] Precision Relay: Downcasting f32->f16 -> Max coordinate drift: {max_diff:.5f} mm")
+        return True
+    else:
+        print(
+            f"[FAILED] Precision Relay: Downcasting f32->f16 -> Max coordinate drift {max_diff:.5f} mm exceeds tolerance (1e-3 mm)")
+        return False
 
 
 def test_metadata_relay(verbose=False):
@@ -159,16 +169,20 @@ def test_metadata_relay(verbose=False):
     if orig_keys == final_keys:
         print(
             "[PASSED] Metadata Relay: All header keys preserved across Python, Rust, C++, and JS!")
+        return True
     else:
         print(
             f"[FAILED] Metadata Relay: Keys drifted! Orig: {orig_keys}, Final: {final_keys}")
+        return False
 
 
 if __name__ == "__main__":
-    test_language_relay()
-    test_format_relay()
-    test_precision_relay()
-    test_metadata_relay()
+    results = {
+        "language_relay": test_language_relay(),
+        "format_relay": test_format_relay(),
+        "precision_relay": test_precision_relay(),
+        "metadata_relay": test_metadata_relay(),
+    }
     print("\nAll relay tests finished.")
 
     print("\nCleaning up intermediary relay files...")
@@ -182,3 +196,7 @@ if __name__ == "__main__":
                 os.remove(f)
         except Exception:
             pass
+
+    failed = [name for name, passed in results.items() if not passed]
+    if failed:
+        raise RuntimeError(f"relay_tests failed: {', '.join(failed)}")

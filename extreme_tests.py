@@ -69,6 +69,7 @@ def test_empty():
     trx = trx_mmap.TrxFile.from_tractogram(tractogram, reference=REF_PATH)
     trx_mmap.save(trx, filepath)
 
+    failed_langs = []
     for lang in ["python", "js", "cpp", "rust"]:
         out_path = os.path.join(TMP_DIR, f"empty_{lang}.trx")
         success, _ = run_language(lang, filepath, out_path)
@@ -76,6 +77,9 @@ def test_empty():
             print(f"[{lang}] PASSED")
         else:
             print(f"[{lang}] FAILED")
+            failed_langs.append(lang)
+
+    return not failed_langs
 
 
 def test_extreme_values():
@@ -96,6 +100,7 @@ def test_extreme_values():
     trx_mmap.save(trx, filepath)
 
     current_file = filepath
+    failed_langs = []
     for lang in ["python", "js", "cpp", "rust"]:
         next_file = os.path.join(TMP_DIR, f"extreme_out_{lang}.trx")
         success, _ = run_language(lang, current_file, next_file)
@@ -104,6 +109,9 @@ def test_extreme_values():
             current_file = next_file
         else:
             print(f"[{lang}] FAILED generation")
+            failed_langs.append(lang)
+
+    return not failed_langs
 
 
 def test_corrupted():
@@ -119,6 +127,7 @@ def test_corrupted():
     with open(corrupted_path, "wb") as f:
         f.write(data[:-100])  # Truncate 100 bytes
 
+    failed_langs = []
     for lang in ["python", "js", "cpp", "rust"]:
         out_path = os.path.join(TMP_DIR, f"corrupted_{lang}.trx")
         success, _ = run_language(
@@ -127,6 +136,9 @@ def test_corrupted():
             print(f"[{lang}] PASSED (Graceful fail on corrupted file)")
         else:
             print(f"[{lang}] FAILED (Did not error gracefully)")
+            failed_langs.append(lang)
+
+    return not failed_langs
 
 
 def test_dict_stress():
@@ -139,6 +151,7 @@ def test_dict_stress():
         [], dtype=np.uint32) for i in range(10000)}
     trx_mmap.save(trx, filepath)
 
+    failed_langs = []
     for lang in ["python", "js", "cpp", "rust"]:
         out_path = os.path.join(TMP_DIR, f"stress_{lang}.trx")
         success, dur = run_language(lang, filepath, out_path)
@@ -146,6 +159,9 @@ def test_dict_stress():
             print(f"[{lang}] PASSED in {dur:.2f}s")
         else:
             print(f"[{lang}] FAILED")
+            failed_langs.append(lang)
+
+    return not failed_langs
 
 
 def test_scalability():
@@ -190,6 +206,7 @@ def test_scalability():
 
     file_size_mb = os.path.getsize(filepath) / 1000000.0
     times = {}
+    failed_langs = []
 
     for lang in ["python", "js", "cpp", "rust"]:
         out_path = os.path.join(TMP_DIR, f"scale_{lang}.trx")
@@ -201,6 +218,7 @@ def test_scalability():
             times[lang] = dur
         else:
             print(f"  [{lang}] FAILED")
+            failed_langs.append(lang)
 
     langs = ["python", "js", "cpp", "rust"]
     ratios = {}
@@ -208,6 +226,7 @@ def test_scalability():
     from itertools import combinations
     if not times:
         print("No timing data collected.")
+        return False
     else:
         for a, b in combinations(langs, 2):
             if a not in times or b not in times:
@@ -238,18 +257,23 @@ def test_scalability():
             print("\nViolations (ratio outside [0.25, 4.0]):")
             for a, b, r in violations:
                 print(f"  {a}/{b} = {r:.3f}")
-            raise RuntimeError(
-                "Throughput ratios outside acceptable range [0.25, 4.0].")
         else:
             print("\nAll pairwise ratios within [0.25, 4.0].")
 
+    return not failed_langs and not violations
+
 
 if __name__ == "__main__":
+    results = {}
     try:
-        test_empty()
-        test_extreme_values()
-        test_corrupted()
-        test_dict_stress()
-        test_scalability()
+        results["empty"] = test_empty()
+        results["extreme_values"] = test_extreme_values()
+        results["corrupted"] = test_corrupted()
+        results["dict_stress"] = test_dict_stress()
+        results["scalability"] = test_scalability()
     finally:
         shutil.rmtree(TMP_DIR, ignore_errors=True)
+
+    failed = [name for name, passed in results.items() if not passed]
+    if failed:
+        raise RuntimeError(f"extreme_tests failed: {', '.join(failed)}")
